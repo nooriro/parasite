@@ -68,7 +68,9 @@ else
   echo "* Magisk patched boot image: [${MAGISKPATCHEDIMG}]" 1>&2
 fi
 
-MAGISKZIP=`ls -1 /sdcard/Download/Magisk-v[1-9][0-9].[0-9].zip | tail -n 1`
+MAGISKZIP=$( ls -1 /sdcard/Download/Magisk-v[1-9][0-9].[0-9].zip \
+  /sdcard/Download/Magisk-v[1-9][0-9].[0-9]\([1-9][0-9][0-9][0-9][0-9]\).zip \
+  2>/dev/null | tail -n 1 )
 if [ -z "$MAGISKZIP" ]; then
   echo "! Magisk zip does not exist in /sdcard/Download" 1>&2
   exit 2
