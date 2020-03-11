@@ -60,7 +60,7 @@ on property:sys.usb.ffs.ready=1 && property:sys.usb.config=diag,serial_cdev,rmne
 '
 # ---------- end of diag.rc contents ----------
 
-MAGISKPATCHEDIMG=`ls -1 /sdcard/Download/magisk_patched.img`
+MAGISKPATCHEDIMG=$( ls -1 /sdcard/Download/magisk_patched.img 2>/dev/null )
 if [ -z "$MAGISKPATCHEDIMG" ]; then
   echo "! magisk_patched.img does not exist in /sdcard/Download" 1>&2
   exit 1
