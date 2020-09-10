@@ -68,21 +68,31 @@ else
   echo "* Magisk patched boot image: [${MAGISKPATCHEDIMG}]" 1>&2
 fi
 
-MAGISKZIP=$( ls -1 /sdcard/Download/Magisk-v[1-9][0-9].[0-9].zip \
-  /sdcard/Download/Magisk-v[1-9][0-9].[0-9]\([1-9][0-9][0-9][0-9][0-9]\).zip \
-  2>/dev/null | tail -n 1 )
-if [ -z "$MAGISKZIP" ]; then
-  echo "! Magisk zip does not exist in /sdcard/Download" 1>&2
-  exit 2
-else
-  echo "* Magisk zip:                [${MAGISKZIP}]" 1>&2
-  echo "* Magisk zip version:        [${MAGISKZIP:25:4}]" 1>&2
-  MAGISKZIPVER="${MAGISKZIP:25:2}${MAGISKZIP:28:1}"
-  if [ "$MAGISKZIPVER" -lt 194 ]; then
-    echo "! Magisk zip version is less than 19.4" 1>&2
-    exit 3
-  fi
-fi
+MAGISKZIP_STABLEORBETA=$( ls -1 /sdcard/Download/v19.4.zip \
+  /sdcard/Download/Magisk-v[2-9][0-9].[0-9].zip \
+  /sdcard/Download/Magisk-v19.4\(194[0-9][0-9]\).zip \
+  /sdcard/Download/Magisk-v[2-9][0-9].[0-9]\([2-9][0-9][0-9][0-9][0-9]\).zip \
+  2>/dev/null | tail -n 1
+)
+MAGISKZIP_CANARY_TYPE1=$( ls -1 /sdcard/Download/magisk-debug.zip 2>/dev/null )
+MAGISKZIP_CANARY_TYPE2=$( ls -1 /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(194[0-9][0-9]\).zip \
+  /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\([2-9][0-9][0-9][0-9][0-9]\).zip  \
+  2>/dev/null | sort -k 2 -t \( | tail -n 1
+)
+if [ -n "$MAGISKZIP_CANARY_TYPE1" ]; then
+  MAGISKZIP=$MAGISKZIP_CANARY_TYPE1
+elif [ -n "$MAGISKZIP_CANARY_TYPE2" ]; then
+  MAGISKZIP=$MAGISKZIP_CANARY_TYPE2
+  VERSION="${MAGISKZIP:24:15}"
+elif [ -n "$MAGISKZIP_STABLEORBETA" ]; then
+  MAGISKZIP=$MAGISKZIP_STABLEORBETA
+  VERSION="${MAGISKZIP:25:4}"
+else 
+  echo "! Magisk zip (version 19.4+) does not exist in /sdcard/Download" 1>&2
+  exit 2 
+fi 
+echo "* Magisk zip:                [${MAGISKZIP}]" 1>&2
+[ -n "$VERSION" ] && echo "* Magisk zip version:        [${VERSION}]" 1>&2
 
 DIR=`mktemp -d`
 cd "$DIR"
