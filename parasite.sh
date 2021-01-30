@@ -11,8 +11,10 @@
 # 
 # Thanks: Airpil, daedae, gheron772, 파이어파이어, 픽셀2VOLTE, and topjohnwu
 # ------------------------------------------------------------------------------
-# Usage: (1) Make sure 'magisk_patched.img' exists in   /sdcard/Download
-#        (2) Download latest (or 19.4+) Magisk zip into /sdcard/Download
+# Usage: (1) Make sure 'magisk_patched.img' or 'magisk_patched_XXXXX.img' file
+#            exists in /sdcard/Download directory
+#        (2) Make sure Magisk app (version code 21402+) is installed (recommended)
+#            or download Magisk zip (version 19.4+) into /sdcard/Download
 #        (3) Place this script in /data/local/tmp and set execution permission
 #        (4) Run this script
 # ------------------------------------------------------------------------------
@@ -60,6 +62,131 @@ on property:sys.usb.ffs.ready=1 && property:sys.usb.config=diag,serial_cdev,rmne
 '
 # ---------- end of diag.rc contents ----------
 
+# $1=APKPATH
+function extract_magiskboot_fromapk() {
+  unzip "$1" lib/armeabi-v7a/libmagiskboot.so > /dev/null
+  if [ -f lib/armeabi-v7a/libmagiskboot.so ]; then
+    mv lib/armeabi-v7a/libmagiskboot.so magiskboot
+    rm -rf lib
+    return 0
+  else
+    return 1
+  fi
+}
+
+# $1=ZIPPATH
+function extract_magiskboot_fromzip() {
+  unzip "$1" arm/magiskboot > /dev/null
+  if [ -f arm/magiskboot ]; then
+    mv arm/magiskboot .
+    rm -rf arm
+    return 0
+  else
+    return 1
+  fi
+}
+
+function prepare_magiskboot() {
+  local DIR
+  local APP=$( pm path com.topjohnwu.magisk )
+  APP=${APP:8}    # Strip "Package:" prefix
+  if [ -n "$APP" ]; then
+    # local APPVERSION=$( dumpsys package com.topjohnwu.magisk | grep versionName | awk -F"=" '{print $2}' )
+    local APPVERSIONCODE=$( dumpsys package com.topjohnwu.magisk | grep versionCode | awk '{print $1}' | awk -F"=" '{print $2}' )
+    if [ "$APPVERSIONCODE" -ge 21402 ]; then
+      echo "* Magisk app version code:   [${APPVERSIONCODE}] >= 21402" 1>&2
+      DIR=$( mktemp -d )    # $DIR has the absolte path
+      cd "$DIR"
+      echo "- Extracting magiskboot from Magisk app           (unzip)" 1>&2
+      if extract_magiskboot_fromapk "$APP"; then
+        return 0
+      else
+        echo "! 'lib/armeabi-v7a/libmagiskboot.so' does not exist in Magisk app" 1>&2
+      fi
+    else
+      echo "! Magisk app version code:   [${APPVERSIONCODE}] < 21402" 1>&2
+    fi
+  else
+    echo "! Magisk app is not installed" 1>&2
+  fi
+
+  echo "! Use legacy method for extracting magiskboot" 1>&2
+
+  local ZIP_TYPE1=$( ls -1 /sdcard/Download/Magisk-v19.4.zip \
+      /sdcard/Download/Magisk-v2[0-1].[0-4].zip \
+      2>/dev/null | tail -n 1
+  )
+  local ZIP_TYPE2=$( ls -1 /sdcard/Download/Magisk-v19.4\(19400\).zip \
+      /sdcard/Download/Magisk-v20.0\(20000\).zip /sdcard/Download/Magisk-v20.1\(20100\).zip \
+      /sdcard/Download/Magisk-v20.2\(20200\).zip /sdcard/Download/Magisk-v20.3\(20300\).zip \
+      /sdcard/Download/Magisk-v20.4\(20400\).zip /sdcard/Download/Magisk-v21.0\(21000\).zip \
+      /sdcard/Download/Magisk-v21.1\(21100\).zip /sdcard/Download/Magisk-v21.2\(21200\).zip \
+      /sdcard/Download/Magisk-v21.3\(21300\).zip /sdcard/Download/Magisk-v21.4\(21400\).zip \
+      2>/dev/null | tail -n 1
+  )
+  local ZIP_TYPE3=$( ls -1 /sdcard/Download/Magisk-19.4\(19400\).zip \
+      /sdcard/Download/Magisk-20.0\(20000\).zip /sdcard/Download/Magisk-20.1\(20100\).zip \
+      /sdcard/Download/Magisk-20.2\(20200\).zip /sdcard/Download/Magisk-20.3\(20300\).zip \
+      /sdcard/Download/Magisk-20.4\(20400\).zip /sdcard/Download/Magisk-21.0\(21000\).zip \
+      /sdcard/Download/Magisk-21.1\(21100\).zip /sdcard/Download/Magisk-21.2\(21200\).zip \
+      /sdcard/Download/Magisk-21.3\(21300\).zip /sdcard/Download/Magisk-21.4\(21400\).zip \
+      2>/dev/null | tail -n 1
+  )
+  local ZIP_TYPE1_VC="-1"; [ -n "$ZIP_TYPE1" ] && ZIP_TYPE1_VC="${ZIP_TYPE1:25:2}${ZIP_TYPE1:28:1}00"
+  local ZIP_TYPE2_VC="-1"; [ -n "$ZIP_TYPE2" ] && ZIP_TYPE2_VC="${ZIP_TYPE2:30:5}"
+  local ZIP_TYPE3_VC="-1"; [ -n "$ZIP_TYPE3" ] && ZIP_TYPE3_VC="${ZIP_TYPE3:29:5}"
+  # echo "$ZIP_TYPE1_VC $ZIP_TYPE2_VC $ZIP_TYPE3_VC"
+  local ZIP_STABLEORBETA
+  if [ "$ZIP_TYPE1_VC" -lt 0 -a "$ZIP_TYPE2_VC" -lt 0 -a "$ZIP_TYPE3_VC" -lt 0 ]; then
+    ZIP_STABLEORBETA=""
+  elif [ "$ZIP_TYPE1_VC" -ge "$ZIP_TYPE2_VC" -a "$ZIP_TYPE1_VC" -ge "$ZIP_TYPE3_VC" ]; then
+    ZIP_STABLEORBETA="$ZIP_TYPE1"
+  elif [ "$ZIP_TYPE2_VC" -gt "$ZIP_TYPE1_VC" -a "$ZIP_TYPE2_VC" -ge "$ZIP_TYPE3_VC" ]; then
+    ZIP_STABLEORBETA="$ZIP_TYPE2"
+  else
+    ZIP_STABLEORBETA="$ZIP_TYPE3"
+  fi
+
+  local ZIP_CANARY_TYPE1=$( ls -1 /sdcard/Download/magisk-debug.zip 2>/dev/null )
+  local ZIP_CANARY_TYPE2=$( ls -1 /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(194[0-9][0-9]\).zip \
+      /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(20[0-4][0-9][0-9]\).zip \
+      /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(21[0-3][0-9][0-9]\).zip \
+      /sdcard/Download/Magisk-f5593e05\(21401\).zip \
+      2>/dev/null | sort -k 2 -t \( | tail -n 1
+  )
+
+  local ZIP
+  if [ -n "$ZIP_STABLEORBETA" ]; then
+    ZIP=$ZIP_STABLEORBETA
+  elif [ -n "$ZIP_CANARY_TYPE2" ]; then
+    ZIP=$ZIP_CANARY_TYPE2
+  elif [ -n "$ZIP_CANARY_TYPE1" ]; then
+    ZIP=$ZIP_CANARY_TYPE1
+  else
+    echo "! Magisk zip (version 19.4+) is not found in /sdcard/Download" 1>&2
+    if [ -n "$DIR" ]; then
+      cd ..
+      rm -rf "$DIR"
+    fi
+    return 2
+  fi
+
+  echo "* Magisk zip:                [${ZIP}]" 1>&2
+  if [ -z "$DIR" ]; then
+    DIR=$( mktemp -d )    # $DIR has the absolte path
+    cd "$DIR"
+  fi
+  echo "- Extracting magiskboot from Magisk zip           (unzip)" 1>&2
+  if extract_magiskboot_fromzip "$ZIP"; then
+    return 0
+  else
+    echo "! 'arm/magiskboot' does not exist in Magisk zip" 1>&2
+    cd ..
+    rm -rf "$DIR"
+    return 4
+  fi
+}
+
 function prepare_magiskpatchedimg() {
   local MAGISKPATCHEDIMG="/sdcard/Download/magisk_patched.img"
   local IMG=$( ls -1t $MAGISKPATCHEDIMG \
@@ -83,69 +210,31 @@ MAGISKPATCHEDIMG="/sdcard/Download/magisk_patched.img"
 MAGISKPATCHEDDIAGIMG="/sdcard/Download/magisk_patched_diag.img"
 
 prepare_magiskpatchedimg || exit $?
+prepare_magiskboot || exit $?
 
-MAGISKZIP_STABLEORBETA=$( ls -1 /sdcard/Download/v19.4.zip \
-  /sdcard/Download/Magisk-v[2-9][0-9].[0-9].zip \
-  /sdcard/Download/Magisk-v19.4\(194[0-9][0-9]\).zip \
-  /sdcard/Download/Magisk-v[2-9][0-9].[0-9]\([2-9][0-9][0-9][0-9][0-9]\).zip \
-  2>/dev/null | tail -n 1
-)
-MAGISKZIP_CANARY_TYPE1=$( ls -1 /sdcard/Download/magisk-debug.zip 2>/dev/null )
-MAGISKZIP_CANARY_TYPE2=$( ls -1 /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(194[0-9][0-9]\).zip \
-  /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\([2-9][0-9][0-9][0-9][0-9]\).zip  \
-  2>/dev/null | sort -k 2 -t \( | tail -n 1
-)
-if [ -n "$MAGISKZIP_CANARY_TYPE1" ]; then
-  MAGISKZIP=$MAGISKZIP_CANARY_TYPE1
-elif [ -n "$MAGISKZIP_CANARY_TYPE2" ]; then
-  MAGISKZIP=$MAGISKZIP_CANARY_TYPE2
-  VERSION="${MAGISKZIP:24:15}"
-elif [ -n "$MAGISKZIP_STABLEORBETA" ]; then
-  MAGISKZIP=$MAGISKZIP_STABLEORBETA
-  VERSION="${MAGISKZIP:25:4}"
-else 
-  echo "! Magisk zip (version 19.4+) does not exist in /sdcard/Download" 1>&2
-  exit 2 
-fi 
-echo "* Magisk zip:                [${MAGISKZIP}]" 1>&2
-[ -n "$VERSION" ] && echo "* Magisk zip version:        [${VERSION}]" 1>&2
-
-DIR=`mktemp -d`
-cd "$DIR"
-echo "- Extracting Magisk zip                           (unzip)" 1>&2
-unzip "$MAGISKZIP" >/dev/null
-echo "- Dropping diag.rc contained within this script   (printf & redirection)" 1>&2
+echo "- Dropping diag.rc contained in this script       (printf & redirection)" 1>&2
 printf "%s" "$DIAG_RC_CONTENTS" > diag.rc
 
-
-if [ ! -f "arm/magiskboot" ]; then
-  echo "! magiskboot does not exist in Magisk zip" 1>&2
-  cd ..
-  rm -rf "$DIR"
-  exit 4
-fi
-
 echo "- Unpacking magisk_patched.img                    (magiskboot unpack)" 1>&2
-./arm/magiskboot unpack /sdcard/Download/magisk_patched.img 2>/dev/null
+./magiskboot unpack $MAGISKPATCHEDIMG 2>/dev/null
 
 echo "- Inserting diag.rc into ramdisk.cpio             (magiskboot cpio)" 1>&2
-./arm/magiskboot cpio ramdisk.cpio \
+./magiskboot cpio ramdisk.cpio \
   "mkdir 755 overlay.d" \
   "add 644 overlay.d/diag.rc diag.rc" 2>/dev/null
 
 echo "- Repacking boot image                            (magiskboot repack)" 1>&2
-./arm/magiskboot repack /sdcard/Download/magisk_patched.img 2>/dev/null
+./magiskboot repack $MAGISKPATCHEDIMG 2>/dev/null
 
 echo "- Copying new boot image into /sdcard/Download    (cp)" 1>&2
-cp new-boot.img /sdcard/Download/magisk_patched_diag.img 2>/dev/null
+cp new-boot.img $MAGISKPATCHEDDIAGIMG 2>/dev/null
 
-echo "* New patched boot image:    [/sdcard/Download/magisk_patched_diag.img]" 1>&2
-SHA1_ORIG=`./arm/magiskboot cpio ramdisk.cpio sha1 2>/dev/null`
+echo "* New patched boot image:    [${MAGISKPATCHEDDIAGIMG}]" 1>&2
+SHA1_ORIG=$( ./magiskboot cpio ramdisk.cpio sha1 2>/dev/null )
 echo "* Stock boot image SHA1:     [${SHA1_ORIG}]" 1>&2
 
-# echo 1>&2
-sha1sum /sdcard/Download/boot.img /sdcard/Download/magisk_patched.img 1>&2
-sha1sum /sdcard/Download/magisk_patched_diag.img
+sha1sum /sdcard/Download/boot.img $MAGISKPATCHEDIMG 1>&2
+sha1sum $MAGISKPATCHEDDIAGIMG
 
 cd ..
 rm -rf "$DIR"
