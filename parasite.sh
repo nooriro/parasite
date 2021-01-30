@@ -60,13 +60,29 @@ on property:sys.usb.ffs.ready=1 && property:sys.usb.config=diag,serial_cdev,rmne
 '
 # ---------- end of diag.rc contents ----------
 
-MAGISKPATCHEDIMG=$( ls -1 /sdcard/Download/magisk_patched.img 2>/dev/null )
-if [ -z "$MAGISKPATCHEDIMG" ]; then
-  echo "! magisk_patched.img does not exist in /sdcard/Download" 1>&2
-  exit 1
-else
-  echo "* Magisk patched boot image: [${MAGISKPATCHEDIMG}]" 1>&2
-fi
+function prepare_magiskpatchedimg() {
+  local MAGISKPATCHEDIMG="/sdcard/Download/magisk_patched.img"
+  local IMG=$( ls -1t $MAGISKPATCHEDIMG \
+      /sdcard/Download/magisk_patched_[0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z].img \
+      2>/dev/null | head -n 1 )
+  if [ -z "$IMG" ]; then
+    echo "! Magisk patched boot image is not found in /sdcard/Download" 1>&2
+    return 1
+  else
+    echo "* Magisk patched boot image: [${IMG}]" 1>&2
+    if [ "${#IMG}" -eq 41 ]; then    # /sdcard/Download/magisk_patched_XXXXX.img
+      [ -f "$MAGISKPATCHEDIMG" ] && rm $MAGISKPATCHEDIMG
+      mv "$IMG" "$MAGISKPATCHEDIMG"
+      echo "              -- renamed --> [${MAGISKPATCHEDIMG}]" 1>&2
+    fi
+  fi
+  return 0
+}
+
+MAGISKPATCHEDIMG="/sdcard/Download/magisk_patched.img"
+MAGISKPATCHEDDIAGIMG="/sdcard/Download/magisk_patched_diag.img"
+
+prepare_magiskpatchedimg || exit $?
 
 MAGISKZIP_STABLEORBETA=$( ls -1 /sdcard/Download/v19.4.zip \
   /sdcard/Download/Magisk-v[2-9][0-9].[0-9].zip \
