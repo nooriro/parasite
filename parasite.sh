@@ -133,5 +133,5 @@ sha1sum /sdcard/Download/magisk_patched_diag.img
 
 cd ..
 rm -rf "$DIR"
-rm "$0"
+# rm "$0"
 exit 0
