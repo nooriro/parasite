@@ -220,7 +220,7 @@ echo "- Unpacking magisk_patched.img                    (magiskboot unpack)" 1>&
 
 echo "- Inserting diag.rc into ramdisk.cpio             (magiskboot cpio)" 1>&2
 ./magiskboot cpio ramdisk.cpio \
-  "mkdir 755 overlay.d" \
+  "mkdir 750 overlay.d" \
   "add 644 overlay.d/diag.rc diag.rc" 2>/dev/null
 
 echo "- Repacking boot image                            (magiskboot repack)" 1>&2
