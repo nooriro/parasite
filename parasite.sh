@@ -206,8 +206,8 @@ function prepare_magiskpatchedimg() {
   return 0
 }
 
-MAGISKPATCHEDIMG="/sdcard/Download/magisk_patched.img"
-MAGISKPATCHEDDIAGIMG="/sdcard/Download/magisk_patched_diag.img"
+INPUT="/sdcard/Download/magisk_patched.img"
+OUTPUT="/sdcard/Download/magisk_patched_diag.img"
 
 prepare_magiskpatchedimg || exit $?
 prepare_magiskboot || exit $?
@@ -216,7 +216,7 @@ echo "- Dropping diag.rc contained in this script       (printf & redirection)" 
 printf "%s" "$DIAG_RC_CONTENTS" > diag.rc
 
 echo "- Unpacking magisk_patched.img                    (magiskboot unpack)" 1>&2
-./magiskboot unpack $MAGISKPATCHEDIMG 2>/dev/null
+./magiskboot unpack $INPUT 2>/dev/null
 
 echo "- Inserting diag.rc into ramdisk.cpio             (magiskboot cpio)" 1>&2
 ./magiskboot cpio ramdisk.cpio \
@@ -224,17 +224,17 @@ echo "- Inserting diag.rc into ramdisk.cpio             (magiskboot cpio)" 1>&2
   "add 644 overlay.d/diag.rc diag.rc" 2>/dev/null
 
 echo "- Repacking boot image                            (magiskboot repack)" 1>&2
-./magiskboot repack $MAGISKPATCHEDIMG 2>/dev/null
+./magiskboot repack $INPUT 2>/dev/null
 
 echo "- Copying new boot image into /sdcard/Download    (cp)" 1>&2
-cp new-boot.img $MAGISKPATCHEDDIAGIMG 2>/dev/null
+cp new-boot.img $OUTPUT 2>/dev/null
 
-echo "* New patched boot image:    [${MAGISKPATCHEDDIAGIMG}]" 1>&2
+echo "* New patched boot image:    [${OUTPUT}]" 1>&2
 SHA1_ORIG=$( ./magiskboot cpio ramdisk.cpio sha1 2>/dev/null )
 echo "* Stock boot image SHA1:     [${SHA1_ORIG}]" 1>&2
 
-sha1sum /sdcard/Download/boot.img $MAGISKPATCHEDIMG 1>&2
-sha1sum $MAGISKPATCHEDDIAGIMG
+sha1sum /sdcard/Download/boot.img $INPUT 1>&2
+sha1sum $OUTPUT
 
 cd ..
 rm -rf "$DIR"
