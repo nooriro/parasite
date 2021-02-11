@@ -112,22 +112,22 @@ function prepare_magiskboot() {
   fi
 
   echo "! Fallback to Magisk zip (version code 19400+) in /sdcard/Download" 1>&2
-  
+
   # $ZIP_TYPE0     = canary,          no version in filename
   # $ZIP_TYPE1     = canary,         has version in filename
   # $ZIP_TYPE[2-4] = stable or beta, has version in filename
   #
   # If at least one of $ZIP_TYPE[1-4] exists, the latest version of $ZIP_TYPE[1-4] is used.
   # Otherwise $ZIP_TYPE0 is used, if it exists.
-  
+
   local ZIP_TYPE0=$( ls -1 /sdcard/Download/magisk-debug.zip 2>/dev/null )
-  local ZIP_TYPE1=$( ls -1 /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(194[0-9][0-9]\).zip  \
-      /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(20[0-4][0-9][0-9]\).zip  \
-      /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(21[0-3][0-9][0-9]\).zip  \
-      /sdcard/Download/Magisk-f5593e05\(21401\).zip  \
+  local ZIP_TYPE1=$( ls -1 /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(194[0-9][0-9]\).zip \
+      /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(20[0-4][0-9][0-9]\).zip \
+      /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(21[0-3][0-9][0-9]\).zip \
+      /sdcard/Download/Magisk-f5593e05\(21401\).zip \
       2>/dev/null | sort -k 2 -t \( | tail -n 1  )
   local ZIP_TYPE2=$( ls -1 /sdcard/Download/Magisk-v19.4.zip \
-      /sdcard/Download/Magisk-v2[0-1].[0-4].zip  \
+      /sdcard/Download/Magisk-v2[0-1].[0-4].zip \
       2>/dev/null | tail -n 1  )
   local ZIP_TYPE3=$( ls -1 /sdcard/Download/Magisk-v19.4\(19400\).zip \
       /sdcard/Download/Magisk-v20.0\(20000\).zip  /sdcard/Download/Magisk-v20.1\(20100\).zip \
@@ -148,8 +148,8 @@ function prepare_magiskboot() {
   local ZIP_TYPE3_VER="-1"; [ -n "$ZIP_TYPE3" ] && ZIP_TYPE3_VER="${ZIP_TYPE3:30:5}"
   local ZIP_TYPE4_VER="-1"; [ -n "$ZIP_TYPE4" ] && ZIP_TYPE4_VER="${ZIP_TYPE4:29:5}"
   # echo "$ZIP_TYPE1_VER  $ZIP_TYPE2_VER  $ZIP_TYPE3_VER  $ZIP_TYPE4_VER"
-  
-  local ZIP 
+
+  local ZIP
   # If all of the $ZIP_TYPE[1-4] are empty (= that is, if there's no versioned Magisk zip file),
   #    ---> Use $ZIP_TYPE0 or return error code
   # Otherwise,
@@ -164,16 +164,16 @@ function prepare_magiskboot() {
       return 2
     else
       ZIP=$ZIP_TYPE0
-    fi 
+    fi
   elif [ "$ZIP_TYPE1_VER" -ge "$ZIP_TYPE2_VER" -a "$ZIP_TYPE1_VER" -ge "$ZIP_TYPE3_VER" -a "$ZIP_TYPE1_VER" -ge "$ZIP_TYPE4_VER" ]; then
     ZIP=$ZIP_TYPE1
   elif [ "$ZIP_TYPE2_VER" -ge "$ZIP_TYPE3_VER" -a "$ZIP_TYPE2_VER" -ge "$ZIP_TYPE4_VER" ]; then
     ZIP=$ZIP_TYPE2
   elif [ "$ZIP_TYPE3_VER" -ge "$ZIP_TYPE4_VER" ]; then
     ZIP=$ZIP_TYPE3
-  else 
+  else
     ZIP=$ZIP_TYPE4
-  fi 
+  fi
 
   echo "* Magisk zip:                [${ZIP}]" 1>&2
   if [ -z "$DIR" ]; then
@@ -210,11 +210,11 @@ function prepare_magiskpatchedimg() {
   return 0
 }
 
-INPUT="/sdcard/Download/magisk_patched.img"
-OUTPUT="/sdcard/Download/magisk_patched_diag.img"
-
 prepare_magiskpatchedimg || exit $?
 prepare_magiskboot || exit $?
+
+INPUT="/sdcard/Download/magisk_patched.img"
+OUTPUT="/sdcard/Download/magisk_patched_diag.img"
 
 echo "- Dropping diag.rc contained in this script       (printf & redirection)" 1>&2
 printf "%s" "$DIAG_RC_CONTENTS" > diag.rc
