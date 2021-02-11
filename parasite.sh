@@ -88,13 +88,14 @@ function extract_magiskboot_fromzip() {
 
 function prepare_magiskboot() {
   local DIR
+
+  # Detect Magisk app 21402+
   local APP=$( pm path com.topjohnwu.magisk )
   APP=${APP:8}    # Strip "Package:" prefix
   if [ -n "$APP" ]; then
-    # local APPVERSION=$( dumpsys package com.topjohnwu.magisk | grep versionName | awk -F"=" '{print $2}' )
-    local APPVERSIONCODE=$( dumpsys package com.topjohnwu.magisk | grep versionCode | awk '{print $1}' | awk -F"=" '{print $2}' )
-    if [ "$APPVERSIONCODE" -ge 21402 ]; then
-      echo "* Magisk app version code:   [${APPVERSIONCODE}] >= 21402" 1>&2
+    local APP_VER=$( dumpsys package com.topjohnwu.magisk | grep versionCode | awk '{print $1}' | awk -F"=" '{print $2}' )
+    if [ "$APP_VER" -ge 21402 ]; then
+      echo "* Magisk app version code:   [${APP_VER}] >= 21402" 1>&2
       DIR=$( mktemp -d )    # $DIR has the absolte path
       cd "$DIR"
       echo "- Extracting magiskboot from Magisk app           (unzip)" 1>&2
@@ -104,72 +105,75 @@ function prepare_magiskboot() {
         echo "! 'lib/armeabi-v7a/libmagiskboot.so' does not exist in Magisk app" 1>&2
       fi
     else
-      echo "! Magisk app version code:   [${APPVERSIONCODE}] < 21402" 1>&2
+      echo "! Magisk app version code:   [${APP_VER}] < 21402" 1>&2
     fi
   else
     echo "! Magisk app is not installed" 1>&2
   fi
 
-  echo "! Use legacy method for extracting magiskboot" 1>&2
-
-  local ZIP_TYPE1=$( ls -1 /sdcard/Download/Magisk-v19.4.zip \
-      /sdcard/Download/Magisk-v2[0-1].[0-4].zip \
-      2>/dev/null | tail -n 1
-  )
-  local ZIP_TYPE2=$( ls -1 /sdcard/Download/Magisk-v19.4\(19400\).zip \
-      /sdcard/Download/Magisk-v20.0\(20000\).zip /sdcard/Download/Magisk-v20.1\(20100\).zip \
-      /sdcard/Download/Magisk-v20.2\(20200\).zip /sdcard/Download/Magisk-v20.3\(20300\).zip \
-      /sdcard/Download/Magisk-v20.4\(20400\).zip /sdcard/Download/Magisk-v21.0\(21000\).zip \
-      /sdcard/Download/Magisk-v21.1\(21100\).zip /sdcard/Download/Magisk-v21.2\(21200\).zip \
-      /sdcard/Download/Magisk-v21.3\(21300\).zip /sdcard/Download/Magisk-v21.4\(21400\).zip \
-      2>/dev/null | tail -n 1
-  )
-  local ZIP_TYPE3=$( ls -1 /sdcard/Download/Magisk-19.4\(19400\).zip \
-      /sdcard/Download/Magisk-20.0\(20000\).zip /sdcard/Download/Magisk-20.1\(20100\).zip \
-      /sdcard/Download/Magisk-20.2\(20200\).zip /sdcard/Download/Magisk-20.3\(20300\).zip \
-      /sdcard/Download/Magisk-20.4\(20400\).zip /sdcard/Download/Magisk-21.0\(21000\).zip \
-      /sdcard/Download/Magisk-21.1\(21100\).zip /sdcard/Download/Magisk-21.2\(21200\).zip \
-      /sdcard/Download/Magisk-21.3\(21300\).zip /sdcard/Download/Magisk-21.4\(21400\).zip \
-      2>/dev/null | tail -n 1
-  )
-  local ZIP_TYPE1_VC="-1"; [ -n "$ZIP_TYPE1" ] && ZIP_TYPE1_VC="${ZIP_TYPE1:25:2}${ZIP_TYPE1:28:1}00"
-  local ZIP_TYPE2_VC="-1"; [ -n "$ZIP_TYPE2" ] && ZIP_TYPE2_VC="${ZIP_TYPE2:30:5}"
-  local ZIP_TYPE3_VC="-1"; [ -n "$ZIP_TYPE3" ] && ZIP_TYPE3_VC="${ZIP_TYPE3:29:5}"
-  # echo "$ZIP_TYPE1_VC $ZIP_TYPE2_VC $ZIP_TYPE3_VC"
-  local ZIP_STABLEORBETA
-  if [ "$ZIP_TYPE1_VC" -lt 0 -a "$ZIP_TYPE2_VC" -lt 0 -a "$ZIP_TYPE3_VC" -lt 0 ]; then
-    ZIP_STABLEORBETA=""
-  elif [ "$ZIP_TYPE1_VC" -ge "$ZIP_TYPE2_VC" -a "$ZIP_TYPE1_VC" -ge "$ZIP_TYPE3_VC" ]; then
-    ZIP_STABLEORBETA="$ZIP_TYPE1"
-  elif [ "$ZIP_TYPE2_VC" -gt "$ZIP_TYPE1_VC" -a "$ZIP_TYPE2_VC" -ge "$ZIP_TYPE3_VC" ]; then
-    ZIP_STABLEORBETA="$ZIP_TYPE2"
-  else
-    ZIP_STABLEORBETA="$ZIP_TYPE3"
-  fi
-
-  local ZIP_CANARY_TYPE1=$( ls -1 /sdcard/Download/magisk-debug.zip 2>/dev/null )
-  local ZIP_CANARY_TYPE2=$( ls -1 /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(194[0-9][0-9]\).zip \
-      /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(20[0-4][0-9][0-9]\).zip \
-      /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(21[0-3][0-9][0-9]\).zip \
-      /sdcard/Download/Magisk-f5593e05\(21401\).zip \
-      2>/dev/null | sort -k 2 -t \( | tail -n 1
-  )
-
-  local ZIP
-  if [ -n "$ZIP_STABLEORBETA" ]; then
-    ZIP=$ZIP_STABLEORBETA
-  elif [ -n "$ZIP_CANARY_TYPE2" ]; then
-    ZIP=$ZIP_CANARY_TYPE2
-  elif [ -n "$ZIP_CANARY_TYPE1" ]; then
-    ZIP=$ZIP_CANARY_TYPE1
-  else
-    echo "! Magisk zip (version 19.4+) is not found in /sdcard/Download" 1>&2
-    if [ -n "$DIR" ]; then
-      cd ..
-      rm -rf "$DIR"
-    fi
-    return 2
-  fi
+  echo "! Fallback to Magisk zip (version code 19400+) in /sdcard/Download" 1>&2
+  
+  # $ZIP_TYPE0     = canary,          no version in filename
+  # $ZIP_TYPE1     = canary,         has version in filename
+  # $ZIP_TYPE[2-4] = stable or beta, has version in filename
+  #
+  # If at least one of $ZIP_TYPE[1-4] exists, the latest version of $ZIP_TYPE[1-4] is used.
+  # Otherwise $ZIP_TYPE0 is used, if it exists.
+  
+  local ZIP_TYPE0=$( ls -1 /sdcard/Download/magisk-debug.zip 2>/dev/null )
+  local ZIP_TYPE1=$( ls -1 /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(194[0-9][0-9]\).zip  \
+      /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(20[0-4][0-9][0-9]\).zip  \
+      /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(21[0-3][0-9][0-9]\).zip  \
+      /sdcard/Download/Magisk-f5593e05\(21401\).zip  \
+      2>/dev/null | sort -k 2 -t \( | tail -n 1  )
+  local ZIP_TYPE2=$( ls -1 /sdcard/Download/Magisk-v19.4.zip \
+      /sdcard/Download/Magisk-v2[0-1].[0-4].zip  \
+      2>/dev/null | tail -n 1  )
+  local ZIP_TYPE3=$( ls -1 /sdcard/Download/Magisk-v19.4\(19400\).zip \
+      /sdcard/Download/Magisk-v20.0\(20000\).zip  /sdcard/Download/Magisk-v20.1\(20100\).zip \
+      /sdcard/Download/Magisk-v20.2\(20200\).zip  /sdcard/Download/Magisk-v20.3\(20300\).zip \
+      /sdcard/Download/Magisk-v20.4\(20400\).zip  /sdcard/Download/Magisk-v21.0\(21000\).zip \
+      /sdcard/Download/Magisk-v21.1\(21100\).zip  /sdcard/Download/Magisk-v21.2\(21200\).zip \
+      /sdcard/Download/Magisk-v21.3\(21300\).zip  /sdcard/Download/Magisk-v21.4\(21400\).zip \
+      2>/dev/null | tail -n 1  )
+  local ZIP_TYPE4=$( ls -1 /sdcard/Download/Magisk-19.4\(19400\).zip \
+      /sdcard/Download/Magisk-20.0\(20000\).zip  /sdcard/Download/Magisk-20.1\(20100\).zip \
+      /sdcard/Download/Magisk-20.2\(20200\).zip  /sdcard/Download/Magisk-20.3\(20300\).zip \
+      /sdcard/Download/Magisk-20.4\(20400\).zip  /sdcard/Download/Magisk-21.0\(21000\).zip \
+      /sdcard/Download/Magisk-21.1\(21100\).zip  /sdcard/Download/Magisk-21.2\(21200\).zip \
+      /sdcard/Download/Magisk-21.3\(21300\).zip  /sdcard/Download/Magisk-21.4\(21400\).zip \
+      2>/dev/null | tail -n 1  )
+  local ZIP_TYPE1_VER="-1"; [ -n "$ZIP_TYPE1" ] && ZIP_TYPE1_VER="${ZIP_TYPE1:33:5}"
+  local ZIP_TYPE2_VER="-1"; [ -n "$ZIP_TYPE2" ] && ZIP_TYPE2_VER="${ZIP_TYPE2:25:2}${ZIP_TYPE2:28:1}00"
+  local ZIP_TYPE3_VER="-1"; [ -n "$ZIP_TYPE3" ] && ZIP_TYPE3_VER="${ZIP_TYPE3:30:5}"
+  local ZIP_TYPE4_VER="-1"; [ -n "$ZIP_TYPE4" ] && ZIP_TYPE4_VER="${ZIP_TYPE4:29:5}"
+  # echo "$ZIP_TYPE1_VER  $ZIP_TYPE2_VER  $ZIP_TYPE3_VER  $ZIP_TYPE4_VER"
+  
+  local ZIP 
+  # If all of the $ZIP_TYPE[1-4] are empty (= that is, if there's no versioned Magisk zip file),
+  #    ---> Use $ZIP_TYPE0 or return error code
+  # Otherwise,
+  #    ---> Use the latest version of $ZIP_TYPE[1-4]
+  if [ -z "$ZIP_TYPE1" -a -z "$ZIP_TYPE2" -a -z "$ZIP_TYPE3" -a -z "$ZIP_TYPE4" ]; then
+    if [ -z "$ZIP_TYPE0" ]; then
+      echo "! Magisk zip (version 19.4+) is not found in /sdcard/Download" 1>&2
+      if [ -n "$DIR" ]; then
+        cd ..
+        rm -rf "$DIR"
+      fi
+      return 2
+    else
+      ZIP=$ZIP_TYPE0
+    fi 
+  elif [ "$ZIP_TYPE1_VER" -ge "$ZIP_TYPE2_VER" -a "$ZIP_TYPE1_VER" -ge "$ZIP_TYPE3_VER" -a "$ZIP_TYPE1_VER" -ge "$ZIP_TYPE4_VER" ]; then
+    ZIP=$ZIP_TYPE1
+  elif [ "$ZIP_TYPE2_VER" -ge "$ZIP_TYPE3_VER" -a "$ZIP_TYPE2_VER" -ge "$ZIP_TYPE4_VER" ]; then
+    ZIP=$ZIP_TYPE2
+  elif [ "$ZIP_TYPE3_VER" -ge "$ZIP_TYPE4_VER" ]; then
+    ZIP=$ZIP_TYPE3
+  else 
+    ZIP=$ZIP_TYPE4
+  fi 
 
   echo "* Magisk zip:                [${ZIP}]" 1>&2
   if [ -z "$DIR" ]; then
