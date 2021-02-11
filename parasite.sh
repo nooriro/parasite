@@ -14,6 +14,7 @@
 # Usage: (1) Make sure 'magisk_patched.img' or 'magisk_patched_XXXXX.img' file
 #            exists in /sdcard/Download directory
 #        (2) Make sure Magisk app (version code 21402+) is installed (recommended)
+#            or download Magisk apk 21402+ into /sdcard/Download
 #            or download Magisk zip (version 19.4+) into /sdcard/Download
 #        (3) Place this script in /data/local/tmp and set execution permission
 #        (4) Run this script
@@ -102,17 +103,17 @@ function prepare_magiskboot() {
       if extract_magiskboot_fromapk "$APP"; then
         return 0
       else
-        echo "! 'lib/armeabi-v7a/libmagiskboot.so' does not exist in Magisk app" 1>&2
+        echo "! Magisk app does not contain 'lib/armeabi-v7a/libmagiskboot.so'" 1>&2
       fi
     else
       echo "! Magisk app version code:   [${APP_VER}] < 21402" 1>&2
     fi
   else
-    echo "! Magisk app is not installed" 1>&2
+    echo "! Magisk app is not installed or hidden" 1>&2
   fi
 
   # Detect Magisk apk 21402+ in /sdcard/Download
-  echo "! Fallback to Magisk apk in /sdcard/Download" 1>&2
+  echo "!           ---> Fallback to Magisk apk" 1>&2
 
   # $APK_TYPE0     = canary,          no version in filename
   # $APK_TYPE1     = canary,         has version in filename
@@ -173,13 +174,13 @@ function prepare_magiskboot() {
     if extract_magiskboot_fromapk "$APK"; then
       return 0
     else
-      echo "! 'lib/armeabi-v7a/libmagiskboot.so' does not exist in Magisk apk" 1>&2
+      echo "! Magisk apk does not contain 'lib/armeabi-v7a/libmagiskboot.so'" 1>&2
     fi
   fi
 
 
   # Detect Magisk zip 19400+ in /sdcard/Download (legacy method)
-  echo "! Fallback to Magisk zip in /sdcard/Download" 1>&2
+  echo "!           ---> Fallback to Magisk zip" 1>&2
 
   # $ZIP_TYPE0     = canary,          no version in filename
   # $ZIP_TYPE1     = canary,         has version in filename
@@ -252,7 +253,7 @@ function prepare_magiskboot() {
   if extract_magiskboot_fromzip "$ZIP"; then
     return 0
   else
-    echo "! 'arm/magiskboot' does not exist in Magisk zip" 1>&2
+    echo "! Magisk zip does not contain 'arm/magiskboot'" 1>&2
     cd ..
     rm -rf "$DIR"
     return 4
@@ -272,7 +273,7 @@ function prepare_magiskpatchedimg() {
     if [ "${#IMG}" -eq 41 ]; then    # /sdcard/Download/magisk_patched_XXXXX.img
       [ -f "$MAGISKPATCHEDIMG" ] && rm $MAGISKPATCHEDIMG
       mv "$IMG" "$MAGISKPATCHEDIMG"
-      echo "              -- renamed --> [${MAGISKPATCHEDIMG}]" 1>&2
+      echo "            --- renamed ---> [${MAGISKPATCHEDIMG}]" 1>&2
     fi
   fi
   return 0
