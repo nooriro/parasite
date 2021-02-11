@@ -111,7 +111,75 @@ function prepare_magiskboot() {
     echo "! Magisk app is not installed" 1>&2
   fi
 
-  echo "! Fallback to Magisk zip (version code 19400+) in /sdcard/Download" 1>&2
+  # Detect Magisk apk 21402+ in /sdcard/Download
+  echo "! Fallback to Magisk apk in /sdcard/Download" 1>&2
+
+  # $APK_TYPE0     = canary,          no version in filename
+  # $APK_TYPE1     = canary,         has version in filename
+  # $APK_TYPE[2-4] = stable or beta, has version in filename
+  #
+  # If at least one of $APK_TYPE[1-4] exists, the latest version of $APK_TYPE[1-4] is used.
+  # Otherwise $APK_TYPE0 is used, if it exists.
+
+  local APK_TYPE0=$( ls -1 /sdcard/Download/app-debug.apk 2>/dev/null )
+  local APK_TYPE1=$( ls -1 /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(2140[2-9]\).apk \
+      /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(214[1-9][0-9]\).apk \
+      /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(21[5-9][0-9][0-9]\).apk \
+      /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(2[2-9][0-9][0-9][0-9]\).apk \
+      2>/dev/null | sort -k 2 -t \( | tail -n 1  )
+  local APK_TYPE2=$( ls -1 /sdcard/Download/Magisk-v21.[5-9].apk \
+      /sdcard/Download/Magisk-v2[2-9].[0-9].apk \
+      2>/dev/null | tail -n 1  )
+  local APK_TYPE3=$( ls -1 /sdcard/Download/Magisk-v21.[5-9]\(21[5-9]00\).apk \
+      /sdcard/Download/Magisk-v2[2-9].[0-9]\(2[2-9][0-9]00\).apk \
+      2>/dev/null | tail -n 1  )
+  local APK_TYPE4=$( ls -1 /sdcard/Download/Magisk-21.[5-9]\(21[5-9]00\).apk \
+      /sdcard/Download/Magisk-2[2-9].[0-9]\(2[2-9][0-9]00\).apk \
+      2>/dev/null | tail -n 1  )
+  local APK_TYPE1_VER="-1"; [ -n "$APK_TYPE1" ] && APK_TYPE1_VER="${APK_TYPE1:33:5}"
+  local APK_TYPE2_VER="-1"; [ -n "$APK_TYPE2" ] && APK_TYPE2_VER="${APK_TYPE2:25:2}${APK_TYPE2:28:1}00"
+  local APK_TYPE3_VER="-1"; [ -n "$APK_TYPE3" ] && APK_TYPE3_VER="${APK_TYPE3:30:5}"
+  local APK_TYPE4_VER="-1"; [ -n "$APK_TYPE4" ] && APK_TYPE4_VER="${APK_TYPE4:29:5}"
+  # echo "$APK_TYPE1_VER  $APK_TYPE2_VER  $APK_TYPE3_VER  $APK_TYPE4_VER"
+
+  local APK
+  # If all of the $APK_TYPE[1-4] are empty (= that is, if there's no versioned Magisk apk file),
+  #    ---> Use $APK_TYPE0 (if exists)
+  # Otherwise,
+  #    ---> Use the latest version of $APK_TYPE[1-4]
+  if [ -z "$APK_TYPE1" -a -z "$APK_TYPE2" -a -z "$APK_TYPE3" -a -z "$APK_TYPE4" ]; then
+    if [ -z "$APK_TYPE0" ]; then
+      echo "! Magisk apk (version code 21402+) is not found in /sdcard/Download" 1>&2
+    else
+      APK=$APK_TYPE0
+    fi
+  elif [ "$APK_TYPE1_VER" -ge "$APK_TYPE2_VER" -a "$APK_TYPE1_VER" -ge "$APK_TYPE3_VER" -a "$APK_TYPE1_VER" -ge "$APK_TYPE4_VER" ]; then
+    APK=$APK_TYPE1
+  elif [ "$APK_TYPE2_VER" -ge "$APK_TYPE3_VER" -a "$APK_TYPE2_VER" -ge "$APK_TYPE4_VER" ]; then
+    APK=$APK_TYPE2
+  elif [ "$APK_TYPE3_VER" -ge "$APK_TYPE4_VER" ]; then
+    APK=$APK_TYPE3
+  else
+    APK=$APK_TYPE4
+  fi
+
+  if [ -n "$APK" ]; then
+    echo "* Magisk apk:                [${APK}]" 1>&2
+    if [ -z "$DIR" ]; then
+      DIR=$( mktemp -d )    # $DIR has the absolte path
+      cd "$DIR"
+    fi
+    echo "- Extracting magiskboot from Magisk apk           (unzip)" 1>&2
+    if extract_magiskboot_fromapk "$APK"; then
+      return 0
+    else
+      echo "! 'lib/armeabi-v7a/libmagiskboot.so' does not exist in Magisk apk" 1>&2
+    fi
+  fi
+
+
+  # Detect Magisk zip 19400+ in /sdcard/Download (legacy method)
+  echo "! Fallback to Magisk zip in /sdcard/Download" 1>&2
 
   # $ZIP_TYPE0     = canary,          no version in filename
   # $ZIP_TYPE1     = canary,         has version in filename
