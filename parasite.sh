@@ -123,19 +123,18 @@ function prepare_magiskboot() {
   # Otherwise $APK_TYPE0 is used, if it exists.
 
   local APK_TYPE0=$( ls -1 /sdcard/Download/app-debug.apk 2>/dev/null )
-  local APK_TYPE1=$( ls -1 /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(2140[2-9]\).apk \
-      /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(214[1-9][0-9]\).apk \
-      /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(21[5-9][0-9][0-9]\).apk \
+  local APK_TYPE1=$( ls -1 /sdcard/Download/Magisk-6951d926\(21402\).apk \
+      /sdcard/Download/Magisk-4cc41ecc\(21403\).apk  /sdcard/Download/Magisk-b1dbbdef\(21404\).apk \
+      /sdcard/Download/Magisk-07bd36c9\(21405\).apk  /sdcard/Download/Magisk-6fb20b3e\(21406\).apk \
+      /sdcard/Download/Magisk-0646f48e\(21407\).apk  /sdcard/Download/Magisk-721dfdf5\(21408\).apk \
+      /sdcard/Download/Magisk-8476eb9f\(21409\).apk  /sdcard/Download/Magisk-b76c80e2\(21410\).apk \
       /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(2[2-9][0-9][0-9][0-9]\).apk \
       2>/dev/null | sort -k 2 -t \( | tail -n 1  )
-  local APK_TYPE2=$( ls -1 /sdcard/Download/Magisk-v21.[5-9].apk \
-      /sdcard/Download/Magisk-v2[2-9].[0-9].apk \
+  local APK_TYPE2=$( ls -1 /sdcard/Download/Magisk-v2[2-9].[0-9].apk \
       2>/dev/null | tail -n 1  )
-  local APK_TYPE3=$( ls -1 /sdcard/Download/Magisk-v21.[5-9]\(21[5-9]00\).apk \
-      /sdcard/Download/Magisk-v2[2-9].[0-9]\(2[2-9][0-9]00\).apk \
+  local APK_TYPE3=$( ls -1 /sdcard/Download/Magisk-v2[2-9].[0-9]\(2[2-9][0-9]00\).apk \
       2>/dev/null | tail -n 1  )
-  local APK_TYPE4=$( ls -1 /sdcard/Download/Magisk-21.[5-9]\(21[5-9]00\).apk \
-      /sdcard/Download/Magisk-2[2-9].[0-9]\(2[2-9][0-9]00\).apk \
+  local APK_TYPE4=$( ls -1 /sdcard/Download/Magisk-2[2-9].[0-9]\(2[2-9][0-9]00\).apk \
       2>/dev/null | tail -n 1  )
   local APK_TYPE1_VER="-1"; [ -n "$APK_TYPE1" ] && APK_TYPE1_VER="${APK_TYPE1:33:5}"
   local APK_TYPE2_VER="-1"; [ -n "$APK_TYPE2" ] && APK_TYPE2_VER="${APK_TYPE2:25:2}${APK_TYPE2:28:1}00"
