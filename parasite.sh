@@ -88,7 +88,7 @@ function extract_magiskboot_fromzip() {
 }
 
 function prepare_magiskboot() {
-  local DIR
+  # $DIR must be a global variable
 
   # Detect Magisk app 21402+
   local APP=$( pm path com.topjohnwu.magisk )
