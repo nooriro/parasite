@@ -261,15 +261,17 @@ function prepare_magiskboot() {
 
 function prepare_magiskpatchedimg() {
   local MAGISKPATCHEDIMG="/sdcard/Download/magisk_patched.img"
-  local IMG=$( ls -1t $MAGISKPATCHEDIMG \
+  local IMG="$( ls -1t $MAGISKPATCHEDIMG \
+      /sdcard/Download/magisk_patched\ \([1-9]\).img \
+      /sdcard/Download/magisk_patched\ \([1-9][0-9]\).img \
       /sdcard/Download/magisk_patched_[0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z].img \
-      2>/dev/null | head -n 1 )
+      2>/dev/null | head -n 1 )"
   if [ -z "$IMG" ]; then
     echo "! Magisk patched boot image is not found in /sdcard/Download" 1>&2
     return 1
   else
     echo "* Magisk patched boot image: [${IMG}]" 1>&2
-    if [ "${#IMG}" -eq 41 ]; then    # /sdcard/Download/magisk_patched_XXXXX.img
+    if [ "$IMG" != "$MAGISKPATCHEDIMG" ]; then
       [ -f "$MAGISKPATCHEDIMG" ] && rm $MAGISKPATCHEDIMG
       mv "$IMG" "$MAGISKPATCHEDIMG"
       echo "            --- renamed ---> [${MAGISKPATCHEDIMG}]" 1>&2
