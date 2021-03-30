@@ -261,10 +261,19 @@ function prepare_magiskboot() {
 
 function prepare_magiskpatchedimg() {
   local MAGISKPATCHEDIMG="/sdcard/Download/magisk_patched.img"
+  # pre 7.1.2(208):                    patched_boot.img
+  # app 7.1.2(208)-7.5.1(267):         magisk_patched.img
+  # app 8.0.0(302)-1469b82a(315):      magisk_patched.img or 'magisk_patched (n).img'
+  # app d0896984(316)-f152b4c2(22005): magisk_patched_XXXXX.img
+  # app 66e30a77(22006):               magisk_patched-VVVVV_XXXXX.img
   local IMG="$( ls -1t $MAGISKPATCHEDIMG \
       /sdcard/Download/magisk_patched\ \([1-9]\).img \
       /sdcard/Download/magisk_patched\ \([1-9][0-9]\).img \
       /sdcard/Download/magisk_patched_[0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z].img \
+      /sdcard/Download/magisk_patched-2200[6-9]_[0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z].img \
+      /sdcard/Download/magisk_patched-220[1-9][0-9]_[0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z].img \
+      /sdcard/Download/magisk_patched-22[1-9][0-9][0-9]_[0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z].img \
+      /sdcard/Download/magisk_patched-2[3-9][0-9][0-9][0-9]_[0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z].img \
       2>/dev/null | head -n 1 )"
   if [ -z "$IMG" ]; then
     echo "! Magisk patched boot image is not found in /sdcard/Download" 1>&2
