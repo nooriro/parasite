@@ -63,11 +63,23 @@ on property:sys.usb.ffs.ready=1 && property:sys.usb.config=diag,serial_cdev,rmne
 '
 # ---------- end of diag.rc contents ----------
 
+# $1=MSG_PART1
+# $2=MSG_PART2  (show only in adb shell)
+function echomsg() {
+  local EUID=$( id -u )
+  if [ "$EUID" = "2000" ]; then
+    echo "$1$2" 1>&2
+  else
+    echo "$1" 1>&2
+  fi
+}
+
 # $1=APKPATH
 function extract_magiskboot_fromapk() {
   unzip "$1" lib/armeabi-v7a/libmagiskboot.so > /dev/null
   if [ -f lib/armeabi-v7a/libmagiskboot.so ]; then
     mv lib/armeabi-v7a/libmagiskboot.so magiskboot
+    chmod u+x magiskboot  # mandatory for Termux app
     rm -rf lib
     return 0
   else
@@ -80,6 +92,7 @@ function extract_magiskboot_fromzip() {
   unzip "$1" arm/magiskboot > /dev/null
   if [ -f arm/magiskboot ]; then
     mv arm/magiskboot .
+    chmod u+x magiskboot  # mandatory for Termux app
     rm -rf arm
     return 0
   else
@@ -88,18 +101,24 @@ function extract_magiskboot_fromzip() {
 }
 
 function prepare_magiskboot() {
-  # $DIR must be a global variable
+  # $DIR and $PWD_PREV must be global
+  DIR=""
+  PWD_PREV="$PWD"
 
-  # Detect Magisk app 21402+
-  local APP=$( pm path com.topjohnwu.magisk )
-  APP=${APP:8}    # Strip "Package:" prefix
+  # (1) Detect Magisk app 21402+
+
+  # In every terminal app without root, pm command does not work
+  local APP="$( pm path com.topjohnwu.magisk | grep base\\.apk)"
+  [ "${APP:0:8}" = "package:" ] && APP="${APP:8}" || APP=""
+  
   if [ -n "$APP" ]; then
     local APP_VER=$( dumpsys package com.topjohnwu.magisk | grep versionCode | awk '{print $1}' | awk -F"=" '{print $2}' )
     if [ "$APP_VER" -ge 21402 ]; then
       echo "* Magisk app version code:   [${APP_VER}] >= 21402" 1>&2
-      DIR=$( mktemp -d )    # $DIR has the absolte path
+      # In Terminal Emulator app, $TMPDIR is empty
+      DIR="$( [ -n "$TMPDIR" ] && mktemp -d || mktemp -d -p "$( dirname "$0" )" )"
       cd "$DIR"
-      echo "- Extracting magiskboot from Magisk app           (unzip)" 1>&2
+      echomsg "- Extracting magiskboot from Magisk app" "           (unzip)"
       if extract_magiskboot_fromapk "$APP"; then
         return 0
       else
@@ -109,11 +128,11 @@ function prepare_magiskboot() {
       echo "! Magisk app version code:   [${APP_VER}] < 21402" 1>&2
     fi
   else
-    echo "! Magisk app is not installed or hidden" 1>&2
+    echo "! Magisk app is not detected" 1>&2
   fi
 
-  # Detect Magisk apk 21402+ in /sdcard/Download
-  echo "!           ---> Fallback to Magisk apk" 1>&2
+  # (2) Detect Magisk apk 21402+ in /sdcard/Download
+  echo "             --------------> Fallback to Magisk apk file" 1>&2
 
   # $APK_TYPE0     = canary,          no version in filename
   # $APK_TYPE1     = canary,         has version in filename
@@ -149,7 +168,7 @@ function prepare_magiskboot() {
   #    ---> Use the latest version of $APK_TYPE[1-4]
   if [ -z "$APK_TYPE1" -a -z "$APK_TYPE2" -a -z "$APK_TYPE3" -a -z "$APK_TYPE4" ]; then
     if [ -z "$APK_TYPE0" ]; then
-      echo "! Magisk apk (version code 21402+) is not found in /sdcard/Download" 1>&2
+      echo "! Magisk apk is not found in /sdcard/Download (v22.0+ required)" 1>&2
     else
       APK=$APK_TYPE0
     fi
@@ -166,10 +185,11 @@ function prepare_magiskboot() {
   if [ -n "$APK" ]; then
     echo "* Magisk apk:                [${APK}]" 1>&2
     if [ -z "$DIR" ]; then
-      DIR=$( mktemp -d )    # $DIR has the absolte path
+      # In Terminal Emulator app, $TMPDIR is empty
+      DIR="$( [ -n "$TMPDIR" ] && mktemp -d || mktemp -d -p "$( dirname "$0" )" )"
       cd "$DIR"
     fi
-    echo "- Extracting magiskboot from Magisk apk           (unzip)" 1>&2
+    echomsg "- Extracting magiskboot from Magisk apk" "           (unzip)"
     if extract_magiskboot_fromapk "$APK"; then
       return 0
     else
@@ -178,8 +198,8 @@ function prepare_magiskboot() {
   fi
 
 
-  # Detect Magisk zip 19400+ in /sdcard/Download (legacy method)
-  echo "!           ---> Fallback to Magisk zip" 1>&2
+  # (3) Detect Magisk zip 19400+ in /sdcard/Download (legacy method, deprecated)
+  echo "             --------------> Fallback to Magisk zip file" 1>&2
 
   # $ZIP_TYPE0     = canary,          no version in filename
   # $ZIP_TYPE1     = canary,         has version in filename
@@ -224,9 +244,9 @@ function prepare_magiskboot() {
   #    ---> Use the latest version of $ZIP_TYPE[1-4]
   if [ -z "$ZIP_TYPE1" -a -z "$ZIP_TYPE2" -a -z "$ZIP_TYPE3" -a -z "$ZIP_TYPE4" ]; then
     if [ -z "$ZIP_TYPE0" ]; then
-      echo "! Magisk zip (version 19.4+) is not found in /sdcard/Download" 1>&2
+      echo "! Magisk zip is not found in /sdcard/Download (v19.4+ required)" 1>&2
       if [ -n "$DIR" ]; then
-        cd ..
+        cd "$PWD_PREV"
         rm -rf "$DIR"
       fi
       return 2
@@ -245,15 +265,16 @@ function prepare_magiskboot() {
 
   echo "* Magisk zip:                [${ZIP}]" 1>&2
   if [ -z "$DIR" ]; then
-    DIR=$( mktemp -d )    # $DIR has the absolte path
+    # In Terminal Emulator app, $TMPDIR is empty
+    DIR="$( [ -n "$TMPDIR" ] && mktemp -d || mktemp -d -p "$( dirname "$0" )" )"
     cd "$DIR"
   fi
-  echo "- Extracting magiskboot from Magisk zip           (unzip)" 1>&2
+  echomsg "- Extracting magiskboot from Magisk zip" "           (unzip)"
   if extract_magiskboot_fromzip "$ZIP"; then
     return 0
   else
     echo "! Magisk zip does not contain 'arm/magiskboot'" 1>&2
-    cd ..
+    cd "$PWD_PREV"
     rm -rf "$DIR"
     return 4
   fi
@@ -265,7 +286,7 @@ function prepare_magiskpatchedimg() {
   # app 7.1.2(208)-7.5.1(267):         magisk_patched.img
   # app 8.0.0(302)-1469b82a(315):      magisk_patched.img or 'magisk_patched (n).img'
   # app d0896984(316)-f152b4c2(22005): magisk_patched_XXXXX.img
-  # app 66e30a77(22006):               magisk_patched-VVVVV_XXXXX.img
+  # app 66e30a77(22006)-latest:        magisk_patched-VVVVV_XXXXX.img
   local IMG="$( ls -1t $MAGISKPATCHEDIMG \
       /sdcard/Download/magisk_patched\ \([1-9]\).img \
       /sdcard/Download/magisk_patched\ \([1-9][0-9]\).img \
@@ -282,7 +303,7 @@ function prepare_magiskpatchedimg() {
     if [ "$IMG" != "$MAGISKPATCHEDIMG" ]; then
       [ -f "$MAGISKPATCHEDIMG" ] && rm $MAGISKPATCHEDIMG
       mv "$IMG" "$MAGISKPATCHEDIMG"
-      echo "            --- renamed ---> [${MAGISKPATCHEDIMG}]" 1>&2
+      echo "             --- renamed --> [${MAGISKPATCHEDIMG}]" 1>&2
     fi
   fi
   return 0
@@ -294,21 +315,21 @@ prepare_magiskboot || exit $?
 INPUT="/sdcard/Download/magisk_patched.img"
 OUTPUT="/sdcard/Download/magisk_patched_diag.img"
 
-echo "- Dropping diag.rc contained in this script       (printf & redirection)" 1>&2
+echomsg "- Dropping diag.rc contained in this script" "       (printf & redirection)"
 printf "%s" "$DIAG_RC_CONTENTS" > diag.rc
 
-echo "- Unpacking magisk_patched.img                    (magiskboot unpack)" 1>&2
+echomsg "- Unpacking magisk_patched.img" "                    (magiskboot unpack)"
 ./magiskboot unpack $INPUT 2>/dev/null
 
-echo "- Inserting diag.rc into ramdisk.cpio             (magiskboot cpio)" 1>&2
+echomsg "- Inserting diag.rc into ramdisk.cpio" "             (magiskboot cpio)"
 ./magiskboot cpio ramdisk.cpio \
   "mkdir 750 overlay.d" \
   "add 644 overlay.d/diag.rc diag.rc" 2>/dev/null
 
-echo "- Repacking boot image                            (magiskboot repack)" 1>&2
+echomsg "- Repacking boot image" "                            (magiskboot repack)"
 ./magiskboot repack $INPUT 2>/dev/null
 
-echo "- Copying new boot image into /sdcard/Download    (cp)" 1>&2
+echomsg "- Copying new boot image into /sdcard/Download" "    (cp)"
 cp new-boot.img $OUTPUT 2>/dev/null
 
 echo "* New patched boot image:    [${OUTPUT}]" 1>&2
@@ -318,7 +339,7 @@ echo "* Stock boot image SHA1:     [${SHA1_ORIG}]" 1>&2
 sha1sum /sdcard/Download/boot.img $INPUT 1>&2
 sha1sum $OUTPUT
 
-cd ..
+cd "$PWD_PREV"
 rm -rf "$DIR"
 # rm "$0"
 exit 0
