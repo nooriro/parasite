@@ -74,6 +74,70 @@ function echomsg() {
   fi
 }
 
+# some modification of grep_prop() in util_functions.sh in Magisk repo
+# https://github.com/topjohnwu/Magisk/blob/v22.1/scripts/util_functions.sh#L28-L34
+# $1=REGEX
+# $2...=PROP_FILE[]
+function grep_prop() {
+  local REGEX="s/^$1=//p"
+  shift
+  local FILES=$@
+  [ -z "$FILES" ] && FILES='prop.default'
+  cat $FILES 2>/dev/null | sed -n "$REGEX" | head -n 1
+}
+
+# must be run after unpacking (magisk patched) boot image
+# takes no arguments
+function test_bootimg() {
+  ./magiskboot cpio ramdisk.cpio "extract prop.default prop.default" 2>/dev/null
+  if [ -f prop.default ]; then
+    local MANUFACTURER_BOOT="$(grep_prop ro\\.product\\.manufacturer)"
+    local        MODEL_BOOT="$(grep_prop ro\\.product\\.model       )"
+    local       DEVICE_BOOT="$(grep_prop ro\\.product\\.device      )"
+    local         NAME_BOOT="$(grep_prop ro\\.product\\.name        )"
+    [ -z "$MANUFACTURER_BOOT" ] && MANUFACTURER_BOOT="$(grep_prop ro\\.product\\.vendor\\.manufacturer)"
+    [ -z        "$MODEL_BOOT" ] &&        MODEL_BOOT="$(grep_prop ro\\.product\\.vendor\\.model       )"
+    [ -z       "$DEVICE_BOOT" ] &&       DEVICE_BOOT="$(grep_prop ro\\.product\\.vendor\\.device      )"
+    [ -z         "$NAME_BOOT" ] &&         NAME_BOOT="$(grep_prop ro\\.product\\.vendor\\.name        )"
+    local  BUILDNUMBER_BOOT="$(grep_prop ro\\.build\\.id)"
+    local  INCREMENTAL_BOOT="$(grep_prop ro\\.build\\.version\\.incremental)"
+    local    TIMESTAMP_BOOT="$(grep_prop ro\\.build\\.date\\.utc)"
+
+    local MANUFACTURER_THIS="$(getprop ro.product.manufacturer)"
+    local        MODEL_THIS="$(getprop ro.product.model)"
+    local       DEVICE_THIS="$(getprop ro.product.device)"
+    local         NAME_THIS="$(getprop ro.product.name)"
+    local  BUILDNUMBER_THIS="$(getprop ro.build.id)"
+    local  INCREMENTAL_THIS="$(getprop ro.build.version.incremental)"
+    local    TIMESTAMP_THIS="$(getprop ro.build.date.utc)"
+
+    local EUID=$( id -u )
+    if [ "$EUID" = "2000" ]; then
+      local SEP="------------------------------------------------------------------------------------------------"
+    else
+      local SEP="------------------------------------------------------"
+    fi
+    echo "$SEP" 1>&2
+    echo "  BOOT IMAGE:  [${MANUFACTURER_BOOT}] [${MODEL_BOOT}] [${DEVICE_BOOT}] | [${NAME_BOOT}] [${BUILDNUMBER_BOOT}] [${INCREMENTAL_BOOT}]" 1>&2
+    echo "  THIS DEVICE: [${MANUFACTURER_THIS}] [${MODEL_THIS}] [${DEVICE_THIS}] | [${NAME_THIS}] [${BUILDNUMBER_THIS}] [${INCREMENTAL_THIS}]" 1>&2
+    echo "$SEP" 1>&2
+    if [ "$NAME_BOOT" = "$NAME_THIS" -a \
+         "$BUILDNUMBER_BOOT" = "$BUILDNUMBER_THIS" -a \
+         "$INCREMENTAL_BOOT" = "$INCREMENTAL_THIS" -a \
+         "$TIMESTAMP_BOOT" = "$TIMESTAMP_THIS" ]; then
+      echo "  su -c \"setenforce 0; setprop sys.usb.configfs 1 && setprop sys.usb.config diag,serial_cdev,rmnet_gsi,adb\"" 1>&2
+      echo "$SEP" 1>&2
+      return 0
+    else
+      echo "  *** WARNING: DO NOT FLASH magisk_patched.img OR magisk_patched_diag.img ON THIS DEVICE" 1>&2
+      echo "$SEP" 1>&2
+      return 1
+    fi
+  fi
+  return 2
+}
+
+
 # $1=APKPATH
 function extract_magiskboot_fromapk() {
   unzip "$1" lib/armeabi-v7a/libmagiskboot.so > /dev/null
@@ -336,6 +400,7 @@ echo "* New patched boot image:    [${OUTPUT}]" 1>&2
 SHA1_ORIG=$( ./magiskboot cpio ramdisk.cpio sha1 2>/dev/null )
 echo "* Stock boot image SHA1:     [${SHA1_ORIG}]" 1>&2
 
+test_bootimg
 sha1sum /sdcard/Download/boot.img $INPUT 1>&2
 sha1sum $OUTPUT
 
