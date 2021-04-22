@@ -82,59 +82,124 @@ function grep_prop() {
   local REGEX="s/^$1=//p"
   shift
   local FILES=$@
-  [ -z "$FILES" ] && FILES='prop.default'
+  [ -z "$FILES" ] && FILES='default.prop'
   cat $FILES 2>/dev/null | sed -n "$REGEX" | head -n 1
 }
 
 # must be run after unpacking (magisk patched) boot image
 # takes no arguments
 function test_bootimg() {
-  ./magiskboot cpio ramdisk.cpio "extract prop.default prop.default" 2>/dev/null
-  if [ -f prop.default ]; then
-    local MANUFACTURER_BOOT="$(grep_prop ro\\.product\\.manufacturer)"
-    local        MODEL_BOOT="$(grep_prop ro\\.product\\.model       )"
-    local       DEVICE_BOOT="$(grep_prop ro\\.product\\.device      )"
-    local         NAME_BOOT="$(grep_prop ro\\.product\\.name        )"
+  local EUID=$( id -u )
+  if [ "$EUID" = "2000" ]; then
+    local SEP="------------------------------------------------------------------------------------------------"
+  else
+    local SEP="------------------------------------------------------"
+  fi
+
+  local MANUFACTURER_THIS="$(getprop ro.product.manufacturer)"
+  local        MODEL_THIS="$(getprop ro.product.model)"
+  local       DEVICE_THIS="$(getprop ro.product.device)"
+  local         NAME_THIS="$(getprop ro.product.name)"
+  local  BUILDNUMBER_THIS="$(getprop ro.build.id)"
+  local  INCREMENTAL_THIS="$(getprop ro.build.version.incremental)"
+  local    TIMESTAMP_THIS="$(getprop ro.build.date.utc)"
+
+  local MANUFACTURER_BOOT MODEL_BOOT DEVICE_BOOT NAME_BOOT
+  local BUILDNUMBER_BOOT INCREMENTAL_BOOT TIMESTAMP_BOOT
+
+  ./magiskboot cpio ramdisk.cpio "extract default.prop default.prop" 2>/dev/null
+  if [ -L default.prop ]; then
+    local PROP_DEFAULT="$(readlink default.prop)"
+    ./magiskboot cpio ramdisk.cpio "extract $PROP_DEFAULT $PROP_DEFAULT" 2>/dev/null
+  fi
+  ./magiskboot cpio ramdisk.cpio "extract selinux_version selinux_version" 2>/dev/null
+
+  if [ -f default.prop ]; then
+    # ALL Pixel boot images has these properties
+    # ALL Nexus boot images doesn't have these properties
+    MANUFACTURER_BOOT="$(grep_prop ro\\.product\\.manufacturer)"
+           MODEL_BOOT="$(grep_prop ro\\.product\\.model       )"
+          DEVICE_BOOT="$(grep_prop ro\\.product\\.device      )"
+            NAME_BOOT="$(grep_prop ro\\.product\\.name        )"
     [ -z "$MANUFACTURER_BOOT" ] && MANUFACTURER_BOOT="$(grep_prop ro\\.product\\.vendor\\.manufacturer)"
     [ -z        "$MODEL_BOOT" ] &&        MODEL_BOOT="$(grep_prop ro\\.product\\.vendor\\.model       )"
     [ -z       "$DEVICE_BOOT" ] &&       DEVICE_BOOT="$(grep_prop ro\\.product\\.vendor\\.device      )"
     [ -z         "$NAME_BOOT" ] &&         NAME_BOOT="$(grep_prop ro\\.product\\.vendor\\.name        )"
-    local  BUILDNUMBER_BOOT="$(grep_prop ro\\.build\\.id)"
-    local  INCREMENTAL_BOOT="$(grep_prop ro\\.build\\.version\\.incremental)"
-    local    TIMESTAMP_BOOT="$(grep_prop ro\\.build\\.date\\.utc)"
+     BUILDNUMBER_BOOT="$(grep_prop ro\\.build\\.id)"
+     INCREMENTAL_BOOT="$(grep_prop ro\\.build\\.version\\.incremental)"
+       TIMESTAMP_BOOT="$(grep_prop ro\\.build\\.date\\.utc)"
 
-    local MANUFACTURER_THIS="$(getprop ro.product.manufacturer)"
-    local        MODEL_THIS="$(getprop ro.product.model)"
-    local       DEVICE_THIS="$(getprop ro.product.device)"
-    local         NAME_THIS="$(getprop ro.product.name)"
-    local  BUILDNUMBER_THIS="$(getprop ro.build.id)"
-    local  INCREMENTAL_THIS="$(getprop ro.build.version.incremental)"
-    local    TIMESTAMP_THIS="$(getprop ro.build.date.utc)"
-
-    local EUID=$( id -u )
-    if [ "$EUID" = "2000" ]; then
-      local SEP="------------------------------------------------------------------------------------------------"
-    else
-      local SEP="------------------------------------------------------"
+    # ALL Pixel boot images / API 23-27 of Nexus
+    [ -z "$TIMESTAMP_BOOT" ] && TIMESTAMP_BOOT="$(grep_prop ro\\.bootimage\\.build\\.date\\.utc)"
+    local FP="$(grep_prop ro\\.bootimage\\.build\\.fingerprint)"
+    if [ -n "$FP" ]; then
+      # https://stackoverflow.com/questions/918886/how-do-i-split-a-string-on-a-delimiter-in-bash/29903172#29903172
+      # EXAMPLE of $FP: google/ryu/dragon:8.1.0/OPM8.190605.005/5749003:user/release-keys
+      [ -z        "$NAME_BOOT" ] &&        NAME_BOOT="$( echo "$FP" | cut -d "/" -f 2                   )"  # ryu
+      [ -z      "$DEVICE_BOOT" ] &&      DEVICE_BOOT="$( echo "$FP" | cut -d "/" -f 3 | cut -d ":" -f 1 )"  # dragon
+      [ -z "$BUILDNUMBER_BOOT" ] && BUILDNUMBER_BOOT="$( echo "$FP" | cut -d "/" -f 4                   )"  # OPM8.190605.005
+      [ -z "$INCREMENTAL_BOOT" ] && INCREMENTAL_BOOT="$( echo "$FP" | cut -d "/" -f 5 | cut -d ":" -f 1 )"  # 5749003
     fi
-    echo "$SEP" 1>&2
-    echo "  BOOT IMAGE:  [${MANUFACTURER_BOOT}] [${MODEL_BOOT}] [${DEVICE_BOOT}] | [${NAME_BOOT}] [${BUILDNUMBER_BOOT}] [${INCREMENTAL_BOOT}]" 1>&2
-    echo "  THIS DEVICE: [${MANUFACTURER_THIS}] [${MODEL_THIS}] [${DEVICE_THIS}] | [${NAME_THIS}] [${BUILDNUMBER_THIS}] [${INCREMENTAL_THIS}]" 1>&2
-    echo "$SEP" 1>&2
+  fi
+  # API 25 of Pixel / API 21-25 of Nexus
+  if [ -f selinux_version ]; then
+    local FP2="$(cat selinux_version)"
+    if [ -n "$FP2" ]; then
+      # https://stackoverflow.com/questions/918886/how-do-i-split-a-string-on-a-delimiter-in-bash/29903172#29903172
+      # EXAMPLE of $FP2: google/occam/mako:5.1.1/LMY48T/2237560:user/dev-keys
+      [ -z        "$NAME_BOOT" ] &&        NAME_BOOT="$( echo "$FP2" | cut -d "/" -f 2                   )"  # occam
+      [ -z      "$DEVICE_BOOT" ] &&      DEVICE_BOOT="$( echo "$FP2" | cut -d "/" -f 3 | cut -d ":" -f 1 )"  # mako
+      [ -z "$BUILDNUMBER_BOOT" ] && BUILDNUMBER_BOOT="$( echo "$FP2" | cut -d "/" -f 4                   )"  # LMY48T
+      [ -z "$INCREMENTAL_BOOT" ] && INCREMENTAL_BOOT="$( echo "$FP2" | cut -d "/" -f 5 | cut -d ":" -f 1 )"  # 2237560
+    fi
+  fi
+
+  local RESULT
+  if [ -n "$NAME_BOOT" -a -n "$BUILDNUMBER_BOOT" -a -n "$INCREMENTAL_BOOT" ]; then
+    # boot image identified
     if [ "$NAME_BOOT" = "$NAME_THIS" -a \
          "$BUILDNUMBER_BOOT" = "$BUILDNUMBER_THIS" -a \
-         "$INCREMENTAL_BOOT" = "$INCREMENTAL_THIS" -a \
-         "$TIMESTAMP_BOOT" = "$TIMESTAMP_THIS" ]; then
+         "$INCREMENTAL_BOOT" = "$INCREMENTAL_THIS" ]; then
+      RESULT="good"
+    else
+      RESULT="bad"
+    fi
+  else
+    # boot image cannot be identified
+    RESULT="dontknow"
+  fi
+  
+  [ -z "$MANUFACTURER_BOOT" ] && MANUFACTURER_BOOT="$( echo "$SEP" | head -c ${#MANUFACTURER_THIS} )"
+  [ -z        "$MODEL_BOOT" ] &&        MODEL_BOOT="$( echo "$SEP" | head -c ${#MODEL_THIS}        )"
+  [ -z       "$DEVICE_BOOT" ] &&       DEVICE_BOOT="$( echo "$SEP" | head -c ${#DEVICE_THIS}       )"
+  [ -z         "$NAME_BOOT" ] &&         NAME_BOOT="$( echo "$SEP" | head -c ${#NAME_THIS}         )"
+  [ -z  "$BUILDNUMBER_BOOT" ] &&  BUILDNUMBER_BOOT="$( echo "$SEP" | head -c ${#BUILDNUMBER_THIS}  )"
+  [ -z  "$INCREMENTAL_BOOT" ] &&  INCREMENTAL_BOOT="$( echo "$SEP" | head -c ${#INCREMENTAL_THIS}  )"
+  [ -z    "$TIMESTAMP_BOOT" ] &&    TIMESTAMP_BOOT="$( echo "$SEP" | head -c ${#TIMESTAMP_THIS}    )"
+
+  echo "$SEP" 1>&2
+  echo "  BOOT IMAGE:  [${MANUFACTURER_BOOT}] [${MODEL_BOOT}] [${DEVICE_BOOT}] | [${NAME_BOOT}] [${BUILDNUMBER_BOOT}] [${INCREMENTAL_BOOT}]" 1>&2
+  echo "  THIS DEVICE: [${MANUFACTURER_THIS}] [${MODEL_THIS}] [${DEVICE_THIS}] | [${NAME_THIS}] [${BUILDNUMBER_THIS}] [${INCREMENTAL_THIS}]" 1>&2
+  echo "$SEP" 1>&2
+
+  case "$RESULT" in
+    "good")
       echo "  su -c \"setenforce 0; setprop sys.usb.configfs 1 && setprop sys.usb.config diag,serial_cdev,rmnet_gsi,adb\"" 1>&2
       echo "$SEP" 1>&2
       return 0
-    else
-      echo "  *** WARNING: DO NOT FLASH magisk_patched.img OR magisk_patched_diag.img ON THIS DEVICE" 1>&2
+      ;;
+    "bad")
+      echo "  *** WARNING: DO NOT FLASH 'magisk_patched.img' OR 'magisk_patched_diag.img' ON THIS DEVICE" 1>&2
       echo "$SEP" 1>&2
       return 1
-    fi
-  fi
-  return 2
+      ;;
+    "dontknow")
+      echo "  *** CAUTION: Boot image cannot be identified. DOUBLE CHECK where the boot image came from." 1>&2
+      echo "$SEP" 1>&2
+      return 2
+      ;;
+  esac
+  return 3
 }
 
 
@@ -367,7 +432,7 @@ function prepare_magiskpatchedimg() {
     if [ "$IMG" != "$MAGISKPATCHEDIMG" ]; then
       [ -f "$MAGISKPATCHEDIMG" ] && rm $MAGISKPATCHEDIMG
       mv "$IMG" "$MAGISKPATCHEDIMG"
-      echo "             --- renamed --> [${MAGISKPATCHEDIMG}]" 1>&2
+      echo "            --- renamed ---> [${MAGISKPATCHEDIMG}]" 1>&2
     fi
   fi
   return 0
