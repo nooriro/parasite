@@ -237,11 +237,11 @@ function prepare_magiskboot() {
   # (1) Detect Magisk app 21402+
 
   # In every terminal app without root, pm command does not work
-  local APP="$( pm path com.topjohnwu.magisk | grep base\\.apk)"
+  local APP="$( pm path com.topjohnwu.magisk | grep base\\.apk )"
   [ "${APP:0:8}" = "package:" ] && APP="${APP:8}" || APP=""
   
   if [ -n "$APP" ]; then
-    local APP_VER=$( dumpsys package com.topjohnwu.magisk | grep versionCode | awk '{print $1}' | awk -F"=" '{print $2}' )
+    local APP_VER=$( dumpsys package com.topjohnwu.magisk | grep -o 'versionCode=[0-9]*' | cut -d "=" -f 2 )
     if [ "$APP_VER" -ge 21402 ]; then
       echo "* Magisk app version code:   [${APP_VER}] >= 21402" 1>&2
       # In Terminal Emulator app, $TMPDIR is empty
