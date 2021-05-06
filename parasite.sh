@@ -63,15 +63,19 @@ on property:sys.usb.ffs.ready=1 && property:sys.usb.config=diag,serial_cdev,rmne
 '
 # ---------- end of diag.rc contents ----------
 
+# In terminal apps or adb shell interactive mode, $COLUMNS has the real value
+# Otherwise $COLUMNS is set to be 80
+# Note that below integer comparision treats non-number strings as zero integers
+[ "$COLUMNS" -gt 0 -a "$COLUMNS" -lt 80 ] && DETAIL="false" || DETAIL="true"
+
 # $1=MSG_PART1
-# $2=MSG_PART2  (show only in adb shell)
+# $2=MSG_PART2  (show only if "$DETAIL" != "false")
 function echomsg() {
-  local EUID=$( id -u )
-  if [ "$EUID" = "2000" ]; then
-    echo "$1$2" 1>&2
-  else
-    echo "$1" 1>&2
-  fi
+  if [ "$DETAIL" = "false" ]; then
+    echo "$1" 1>&2 
+  else 
+    echo "$1$2" 1>&2 
+  fi 
 }
 
 # some modification of grep_prop() in util_functions.sh in Magisk repo
@@ -89,12 +93,11 @@ function grep_prop() {
 # must be run after unpacking (magisk patched) boot image
 # takes no arguments
 function test_bootimg() {
-  local EUID=$( id -u )
-  if [ "$EUID" = "2000" ]; then
-    local SEP="------------------------------------------------------------------------------------------------"
-  else
-    local SEP="------------------------------------------------------"
-  fi
+  if [ "$DETAIL" = "false" ]; then
+    local SEP="------------------------------------------------------" 
+  else 
+    local SEP="------------------------------------------------------------------------------------------------" 
+  fi 
 
   local MANUFACTURER_THIS="$(getprop ro.product.manufacturer)"
   local        MODEL_THIS="$(getprop ro.product.model)"
