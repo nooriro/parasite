@@ -6,18 +6,21 @@
 # * Based on Airpil's custom Magisk for enabling diag mode on Pixel 2 XL [1][2]
 # * Improved using Magisk 19.4+'s 'Root Directory Overlay System' [3]
 # [1] https://forum.xda-developers.com/pixel-2-xl/how-to/guide-qxdm-port-activation-pixel-2-xl-t3884967
-# [2] https://github.com/AGagarin/Magisk/blob/master/native/jni/core/magiskrc.h
-# [3] https://github.com/topjohnwu/Magisk/blob/master/docs/guides.md#root-directory-overlay-system
+# [2] https://github.com/AGagarin/Magisk/blob/4db651f799/native/jni/core/magiskrc.h
+# [3] https://github.com/topjohnwu/Magisk/blob/9164bf22c2/docs/guides.md#root-directory-overlay-system
 # 
 # Thanks: Airpil, daedae, gheron772, 파이어파이어, 픽셀2VOLTE, and topjohnwu
 # ------------------------------------------------------------------------------
-# Usage: (1) Make sure 'magisk_patched.img' or 'magisk_patched_XXXXX.img' file
+# Usage: (1) Make sure magisk patched boot image file ( 'magisk_patched.img'
+#            or 'magisk_patched_XXXXX.img' or 'magisk_patched-VVVVV_XXXXX.img' )
 #            exists in /sdcard/Download directory
-#        (2) Make sure Magisk app (version code 21402+) is installed (recommended)
-#            or download Magisk apk 21402+ into /sdcard/Download
-#            or download Magisk zip (version 19.4+) into /sdcard/Download
-#        (3) Place this script in /data/local/tmp and set execution permission
-#        (4) Run this script
+#        (2) Make sure Magisk app (version code 21402+) is installed and not hidden
+#            or place Magisk apk (21402+) file into /sdcard/Download
+#           * Placing Magisk zip (v19.4+) file into /sdcard/Download is deprecated
+#        (3) Place this script file into /data/local/tmp (in adb shell)
+#                                or into ~               (in terminal apps)
+#            and set execution permission
+#        (4) Run this script file
 # ------------------------------------------------------------------------------
 
 
