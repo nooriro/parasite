@@ -96,11 +96,8 @@ function grep_prop() {
 # must be run after unpacking (magisk patched) boot image
 # takes no arguments
 function test_bootimg() {
-  if [ "$DETAIL" = "false" ]; then
-    local SEP="------------------------------------------------------" 
-  else 
-    local SEP="------------------------------------------------------------------------------------------------" 
-  fi 
+  local SEP="------------------------------------------------------------------------------------------------"
+  [ "$DETAIL" = "false" ] && SEP="${SEP:0:56}"
 
   local MANUFACTURER_THIS="$(getprop ro.product.manufacturer)"
   local        MODEL_THIS="$(getprop ro.product.model)"
@@ -190,8 +187,13 @@ function test_bootimg() {
   [ -z    "$TIMESTAMP_BOOT" ] &&    TIMESTAMP_BOOT="$( echo "$SEP" | head -c ${#TIMESTAMP_THIS}    )"
 
   echo "$SEP" 1>&2
-  echo "  BOOT IMAGE:  [${MANUFACTURER_BOOT}] [${MODEL_BOOT}] [${DEVICE_BOOT}] | [${NAME_BOOT}] [${BUILDNUMBER_BOOT}] [${INCREMENTAL_BOOT}]" 1>&2
-  echo "  THIS DEVICE: [${MANUFACTURER_THIS}] [${MODEL_THIS}] [${DEVICE_THIS}] | [${NAME_THIS}] [${BUILDNUMBER_THIS}] [${INCREMENTAL_THIS}]" 1>&2
+  if [ "$DETAIL" = "false" ]; then
+    echo "  BOOT IMAGE:  [${NAME_BOOT}] [${BUILDNUMBER_BOOT}] [${INCREMENTAL_BOOT}]" 1>&2
+    echo "  THIS DEVICE: [${NAME_THIS}] [${BUILDNUMBER_THIS}] [${INCREMENTAL_THIS}]" 1>&2
+  else
+    echo "  BOOT IMAGE:  [${MANUFACTURER_BOOT}] [${MODEL_BOOT}] [${DEVICE_BOOT}] | [${NAME_BOOT}] [${BUILDNUMBER_BOOT}] [${INCREMENTAL_BOOT}]" 1>&2
+    echo "  THIS DEVICE: [${MANUFACTURER_THIS}] [${MODEL_THIS}] [${DEVICE_THIS}] | [${NAME_THIS}] [${BUILDNUMBER_THIS}] [${INCREMENTAL_THIS}]" 1>&2
+  fi
   echo "$SEP" 1>&2
 
   case "$RESULT" in
