@@ -113,12 +113,17 @@ function test_bootimg() {
   local MANUFACTURER_BOOT MODEL_BOOT DEVICE_BOOT NAME_BOOT
   local BUILDNUMBER_BOOT INCREMENTAL_BOOT TIMESTAMP_BOOT
 
-  ./magiskboot cpio ramdisk.cpio "extract default.prop default.prop" 2>/dev/null
-  if [ -L default.prop ]; then
-    local PROP_DEFAULT="$(readlink default.prop)"
-    ./magiskboot cpio ramdisk.cpio "extract $PROP_DEFAULT $PROP_DEFAULT" 2>/dev/null
-  fi
-  ./magiskboot cpio ramdisk.cpio "extract selinux_version selinux_version" 2>/dev/null
+  # Extrating a file via magiskboot yields 'Bad system call' (exit code 159) in terminal apps w/o root
+  # Instead of magiskboot cpio command, Use toybox cpio (Android 6+ built-in) to extract files
+  mkdir ramdisk
+  cd ramdisk
+  /system/bin/cpio -i -F ../ramdisk.cpio 2>/dev/null
+  cd ..
+  # Normal copy (i.e running cp without any options) suffices.
+  # If ramdisk/default.prop is a symlink (like modern Pixel boot images),
+  # the dereferenced file is copied actually.
+  cp ramdisk/default.prop . 2>/dev/null
+  cp ramdisk/selinux_version . 2>/dev/null
 
   if [ -f default.prop ]; then
     # ALL Pixel boot images has these properties
@@ -147,6 +152,7 @@ function test_bootimg() {
       [ -z "$INCREMENTAL_BOOT" ] && INCREMENTAL_BOOT="$( echo "$FP" | cut -d "/" -f 5 | cut -d ":" -f 1 )"  # 5749003
     fi
   fi
+
   # API 25 of Pixel / API 21-25 of Nexus
   if [ -f selinux_version ]; then
     local FP2="$(cat selinux_version)"
