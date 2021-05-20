@@ -24,6 +24,46 @@
 # ------------------------------------------------------------------------------
 
 
+for ARG in "$@"; do
+  # How to perform a for loop on each character in a string in Bash?
+  # https://stackoverflow.com/questions/10551981/how-to-perform-a-for-loop-on-each-character-in-a-string-in-bash/29906163#29906163
+  # A variable modified inside a while loop is not remembered
+  # https://stackoverflow.com/questions/16854280/a-variable-modified-inside-a-while-loop-is-not-remembered/16854326#16854326
+
+
+  # On Android Marshmallow, the code below doesn't work: got this error:
+  # /data/local/tmp/parasite.sh[43]: can't create temporary file /data/local/shu896p5.tmp: Permission denied
+  # while read -n1 CHAR; do
+  #   case "$CHAR" in
+  #     "d")  ...   ;;
+  #     "r")  ...   ;;
+  #     "v")  ...   ;;
+  #     "m")  ...   ;;
+  #     "l")  ...   ;;
+  #   esac
+  # done <<< "$ARG"
+  #
+  # sees to be trying create temp directory for here-doc ( <<< "$ARG" )
+  # in /data/local directory, which can't write a file
+  # https://unix.stackexchange.com/questions/429285/cannot-create-temp-file-for-here-document-permission-denied
+
+  # So I tried to find another method.
+  # https://stackoverflow.com/questions/10551981/how-to-perform-a-for-loop-on-each-character-in-a-string-in-bash/42964584#42964584
+  #
+  # The code below works on Android Marshmallow, as well as on Android 11
+  I=1
+  while [ $I -le ${#ARG} ]; do
+      CHAR="$(printf '%s' "$ARG" | cut -c $I-$I)"
+      case "$CHAR" in
+        "k")        KEEP_TEMPDIR="true"     ;;
+        "r")        SELF_REMOVAL="true"     ;;
+      esac
+      I=$(expr $I + 1)
+  done
+done
+unset I CHAR ARG
+
+
 # In terminal apps or adb shell interactive mode, $COLUMNS has the real value
 # Otherwise $COLUMNS is set to be 80
 # Note that below integer comparision treats non-number strings as zero integers
@@ -309,7 +349,7 @@ function extract_magiskboot() {
       echo "! Magisk zip is not found in /sdcard/Download (v19.4+ required)" 1>&2
       if [ -n "$DIR" ]; then
         cd "$PWD_PREV"
-        rm -rf "$DIR"
+        [ "$KEEP_TEMPDIR" = "true" ] || rm -rf "$DIR"
       fi
       return 2
     else
@@ -337,7 +377,7 @@ function extract_magiskboot() {
   else
     echo "! Magisk zip does not contain 'arm/magiskboot'" 1>&2
     cd "$PWD_PREV"
-    rm -rf "$DIR"
+    [ "$KEEP_TEMPDIR" = "true" ] || rm -rf "$DIR"
     return 4
   fi
 }
@@ -514,6 +554,6 @@ sha1sum /sdcard/Download/boot.img $INPUT 1>&2
 sha1sum $OUTPUT
 
 cd "$PWD_PREV"
-rm -rf "$DIR"
-# rm "$0"
+[ "$KEEP_TEMPDIR" = "true" ] || rm -rf "$DIR"
+[ "$SELF_REMOVAL" != "true" ] || rm "$0"
 exit 0
