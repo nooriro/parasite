@@ -94,6 +94,12 @@ is_debug && set -x
 # On Oreo 8.1, readlink -f does not work. Use realpath instead.
 SCRIPT="$(realpath "$0")"
 
+# OS API level
+# 21 = Lollipop 5.0   22 = Lollipop 5.1   23 = Marshmallow 6.0
+# 24 = Nougat 7.0     25 = Nougat 7.1     26 = Oreo 8.0          27 = Oreo 8.1
+# 28 = Pie 9.0        29 = Q 10.0         30 = R 11.0            31 = S 12.0
+API=$(getprop ro.build.version.sdk)
+
 
 # ---------- start of diag.rc contents ----------
 DIAG_RC_CONTENTS='on init
@@ -201,6 +207,18 @@ function extract_magiskboot_fromzip() {
 
 
 # Subroutines ----------------------------------------------------------
+
+function check_os_api_level() {
+  local MIN_API=23   # Marshmallow (Android 6.0)
+  if [ "$API" -ge "$MIN_API" ]; then
+    is_verbose && echo "* Android API level:         [${API}] >= ${MIN_API}" 1>&2
+    return 0
+  else
+    echo "! Android API level:         [${API}] < ${MIN_API}" 1>&2
+    return 1
+  fi
+}
+
 
 function check_storage_permission() {
   local PATH="/sdcard/Download"
@@ -605,6 +623,7 @@ function test_bootimg() {
 
 
 
+check_os_api_level || finalize $?
 check_storage_permission || finalize $?
 check_magiskpatchedimg || finalize $?
 extract_magiskboot || finalize $?
