@@ -168,7 +168,7 @@ function prepare_magiskboot() {
   # In every terminal app without root, pm command does not work
   local APP="$( pm path com.topjohnwu.magisk | grep base\\.apk )"
   [ "${APP:0:8}" = "package:" ] && APP="${APP:8}" || APP=""
-  
+
   if [ -n "$APP" ]; then
     local APP_VER=$( dumpsys package com.topjohnwu.magisk | grep -o 'versionCode=[0-9]*' | cut -d "=" -f 2 )
     if [ "$APP_VER" -ge 21402 ]; then
@@ -348,7 +348,7 @@ function test_bootimg() {
   elif [ "$COLUMNS" -lt ${#SEP} ]; then
     # Shrink $SEP length to match $COLUMN value
     SEP="$( echo "$SEP" | cut -b 1-"$COLUMNS" )"
-  fi 
+  fi
 
   local MANUFACTURER_THIS="$(getprop ro.product.manufacturer)"
   local        MODEL_THIS="$(getprop ro.product.model)"
@@ -398,8 +398,8 @@ function test_bootimg() {
       [ -z      "$DEVICE_BOOT" ] &&      DEVICE_BOOT="$( echo "$FP" | cut -d "/" -f 3 | cut -d ":" -f 1 )"  # dragon
       [ -z "$BUILDNUMBER_BOOT" ] && BUILDNUMBER_BOOT="$( echo "$FP" | cut -d "/" -f 4                   )"  # OPM8.190605.005
       [ -z "$INCREMENTAL_BOOT" ] && INCREMENTAL_BOOT="$( echo "$FP" | cut -d "/" -f 5 | cut -d ":" -f 1 )"  # 5749003
-    fi 
-  fi 
+    fi
+  fi
 
   # API 25 of Pixel / API 21-25 of Nexus
   if [ -f selinux_version ]; then
@@ -411,8 +411,8 @@ function test_bootimg() {
       [ -z      "$DEVICE_BOOT" ] &&      DEVICE_BOOT="$( echo "$FP2" | cut -d "/" -f 3 | cut -d ":" -f 1 )"  # mako
       [ -z "$BUILDNUMBER_BOOT" ] && BUILDNUMBER_BOOT="$( echo "$FP2" | cut -d "/" -f 4                   )"  # LMY48T
       [ -z "$INCREMENTAL_BOOT" ] && INCREMENTAL_BOOT="$( echo "$FP2" | cut -d "/" -f 5 | cut -d ":" -f 1 )"  # 2237560
-    fi 
-  fi 
+    fi
+  fi
 
   local RESULT
   if [ -n "$NAME_BOOT" -a -n "$BUILDNUMBER_BOOT" -a -n "$INCREMENTAL_BOOT" ]; then
@@ -423,12 +423,12 @@ function test_bootimg() {
       RESULT="good"
     else
       RESULT="bad"
-    fi 
-  else 
+    fi
+  else
     # boot image cannot be identified
     RESULT="dontknow"
-  fi 
-  
+  fi
+
   # head command (of toybox) in Oreo 8.0 does not support -c option.
   # Use cut -b / cut -c command instead:
   #   echo "----------" | cut -b 1-3
@@ -450,10 +450,10 @@ function test_bootimg() {
   if [ "$DETAIL" = "false" ]; then
     echo "  BOOT IMAGE:  [${NAME_BOOT}] [${BUILDNUMBER_BOOT}] [${INCREMENTAL_BOOT}]" 1>&2
     echo "  THIS DEVICE: [${NAME_THIS}] [${BUILDNUMBER_THIS}] [${INCREMENTAL_THIS}]" 1>&2
-  else 
+  else
     echo "  BOOT IMAGE:  [${MANUFACTURER_BOOT}] [${MODEL_BOOT}] [${DEVICE_BOOT}] | [${NAME_BOOT}] [${BUILDNUMBER_BOOT}] [${INCREMENTAL_BOOT}]" 1>&2
     echo "  THIS DEVICE: [${MANUFACTURER_THIS}] [${MODEL_THIS}] [${DEVICE_THIS}] | [${NAME_THIS}] [${BUILDNUMBER_THIS}] [${INCREMENTAL_THIS}]" 1>&2
-  fi 
+  fi
   echo "$SEP" 1>&2
 
   case "$RESULT" in
@@ -474,7 +474,7 @@ function test_bootimg() {
       ;;
   esac
   return 3
-} 
+}
 
 
 
