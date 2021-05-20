@@ -142,6 +142,19 @@ function grep_prop() {
   cat $FILES 2>/dev/null | sed -n "$REGEX" | head -n 1
 }
 
+# $1=EXITCODE
+# If no $1, do not exit (finalize only)
+function finalize() {
+  if [ -n "$DIR" ]; then
+    cd ..
+    [ "$KEEP_TEMPDIR" = "true" ] || rm -rf "$DIR"
+  fi
+  if [ "$1" -eq 0 ]; then
+    [ "$SELF_REMOVAL" != "true" ] || rm "$SCRIPT"
+  fi
+  [ -n "$1" ] && exit "$1"
+}
+
 # $1=APKPATH
 function extract_magiskboot_fromapk() {
   unzip "$1" lib/armeabi-v7a/libmagiskboot.so > /dev/null
@@ -388,10 +401,6 @@ function extract_magiskboot() {
   if [ -z "$ZIP_TYPE1" -a -z "$ZIP_TYPE2" -a -z "$ZIP_TYPE3" -a -z "$ZIP_TYPE4" ]; then
     if [ -z "$ZIP_TYPE0" ]; then
       echo "! Magisk zip is not found in /sdcard/Download (v19.4+ required)" 1>&2
-      if [ -n "$DIR" ]; then
-        cd ..
-        [ "$KEEP_TEMPDIR" = "true" ] || rm -rf "$DIR"
-      fi
       return 2
     else
       ZIP=$ZIP_TYPE0
@@ -413,8 +422,6 @@ function extract_magiskboot() {
     return 0
   else
     echo "! Magisk zip does not contain 'arm/magiskboot'" 1>&2
-    cd ..
-    [ "$KEEP_TEMPDIR" = "true" ] || rm -rf "$DIR"
     return 4
   fi
 }
@@ -559,28 +566,28 @@ function test_bootimg() {
 
 
 
-check_magiskpatchedimg || exit $?
-extract_magiskboot || exit $?
+check_magiskpatchedimg || finalize $?
+extract_magiskboot || finalize $?
 
 INPUT="/sdcard/Download/magisk_patched.img"
 OUTPUT="/sdcard/Download/magisk_patched_diag.img"
 
 echomsg "- Dropping diag.rc" "                                (printf >)"
-printf "%s" "$DIAG_RC_CONTENTS" > diag.rc
+printf "%s" "$DIAG_RC_CONTENTS" > diag.rc || finalize $?
 
 echomsg "- Unpacking magisk_patched.img" "                    (magiskboot unpack)"
-./magiskboot unpack $INPUT 2>/dev/null
+./magiskboot unpack $INPUT 2>/dev/null || finalize $?
 
 echomsg "- Inserting diag.rc into ramdisk.cpio" "             (magiskboot cpio)"
 ./magiskboot cpio ramdisk.cpio \
   "mkdir 750 overlay.d" \
-  "add 644 overlay.d/diag.rc diag.rc" 2>/dev/null
+  "add 644 overlay.d/diag.rc diag.rc" 2>/dev/null || finalize $?
 
 echomsg "- Repacking boot image" "                            (magiskboot repack)"
-./magiskboot repack $INPUT 2>/dev/null
+./magiskboot repack $INPUT 2>/dev/null || finalize $?
 
 echomsg "- Copying new boot image into /sdcard/Download" "    (cp)"
-cp new-boot.img $OUTPUT 2>/dev/null
+cp new-boot.img $OUTPUT 2>/dev/null || finalize $?
 
 echo "* New patched boot image:    [${OUTPUT}]" 1>&2
 SHA1_ORIG=$( ./magiskboot cpio ramdisk.cpio sha1 2>/dev/null )
@@ -590,7 +597,5 @@ test_bootimg
 sha1sum /sdcard/Download/boot.img $INPUT 1>&2
 sha1sum $OUTPUT
 
-cd ..
-[ "$KEEP_TEMPDIR" = "true" ] || rm -rf "$DIR"
-[ "$SELF_REMOVAL" != "true" ] || rm "$0"
+finalize   # no args == do not exit (finalize only)
 exit 0
