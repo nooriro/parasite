@@ -57,6 +57,8 @@ for ARG in "$@"; do
       case "$CHAR" in
         "k")        KEEP_TEMPDIR="true"     ;;
         "r")        SELF_REMOVAL="true"     ;;
+        "m")        PARASITE_MORE="true"    ;;
+        "l")        PARASITE_MORE="false"   ;;
       esac
       I=$(expr $I + 1)
   done
@@ -64,10 +66,16 @@ done
 unset I CHAR ARG
 
 
-# In terminal apps or adb shell interactive mode, $COLUMNS has the real value
-# Otherwise $COLUMNS is set to be 80
-# Note that below integer comparision treats non-number strings as zero integers
-[ "$COLUMNS" -gt 0 -a "$COLUMNS" -lt 80 ] && DETAIL="false" || DETAIL="true"
+# For detailed output
+function is_detail() {
+  [ "$PARASITE_MORE" = "true" ] && return 0
+  [ "$PARASITE_MORE" = "false" ] && return 1
+  # In terminal apps or adb shell interactive mode, $COLUMNS has the real value
+  # Otherwise $COLUMNS is set to be 80
+  # Note that below integer comparision treats non-number strings as zero integers
+  [ "$COLUMNS" -gt 0 -a "$COLUMNS" -lt 70 ] && return 1 || return 0
+}
+
 
 # Absolute cannonical path of this script
 # On Oreo 8.1, readlink -f does not work. Use realpath instead.
@@ -121,13 +129,9 @@ on property:sys.usb.ffs.ready=1 && property:sys.usb.config=diag,serial_cdev,rmne
 # Util functions -------------------------------------------------------
 
 # $1=MSG_PART1
-# $2=MSG_PART2  (show only if "$DETAIL" != "false")
+# $2=MSG_PART2  (show only if is_detail returns zero)
 function echomsg() {
-  if [ "$DETAIL" = "false" ]; then
-    echo "$1" 1>&2 
-  else 
-    echo "$1$2" 1>&2 
-  fi 
+  is_detail && echo "$1$2" 1>&2 || echo "$1" 1>&2
 }
 
 # some modification of grep_prop() in util_functions.sh in Magisk repo
@@ -535,12 +539,12 @@ function test_bootimg() {
   [ -z    "$TIMESTAMP_BOOT" ] &&    TIMESTAMP_BOOT="$( echo "$SEP" | cut -b 1-${#TIMESTAMP_THIS}    )"
 
   echo "$SEP" 1>&2
-  if [ "$DETAIL" = "false" ]; then
-    echo "  BOOT IMAGE:  [${NAME_BOOT}] [${BUILDNUMBER_BOOT}] [${INCREMENTAL_BOOT}]" 1>&2
-    echo "  THIS DEVICE: [${NAME_THIS}] [${BUILDNUMBER_THIS}] [${INCREMENTAL_THIS}]" 1>&2
-  else
+  if is_detail; then
     echo "  BOOT IMAGE:  [${MANUFACTURER_BOOT}] [${MODEL_BOOT}] [${DEVICE_BOOT}] | [${NAME_BOOT}] [${BUILDNUMBER_BOOT}] [${INCREMENTAL_BOOT}]" 1>&2
     echo "  THIS DEVICE: [${MANUFACTURER_THIS}] [${MODEL_THIS}] [${DEVICE_THIS}] | [${NAME_THIS}] [${BUILDNUMBER_THIS}] [${INCREMENTAL_THIS}]" 1>&2
+  else
+    echo "  BOOT IMAGE:  [${NAME_BOOT}] [${BUILDNUMBER_BOOT}] [${INCREMENTAL_BOOT}]" 1>&2
+    echo "  THIS DEVICE: [${NAME_THIS}] [${BUILDNUMBER_THIS}] [${INCREMENTAL_THIS}]" 1>&2
   fi
   echo "$SEP" 1>&2
 
