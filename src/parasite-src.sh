@@ -69,6 +69,10 @@ unset I CHAR ARG
 # Note that below integer comparision treats non-number strings as zero integers
 [ "$COLUMNS" -gt 0 -a "$COLUMNS" -lt 80 ] && DETAIL="false" || DETAIL="true"
 
+# Absolute cannonical path of this script
+# On Oreo 8.1, readlink -f does not work. Use realpath instead.
+SCRIPT="$(realpath "$0")"
+
 
 # ---------- start of diag.rc contents ----------
 DIAG_RC_CONTENTS='on init
@@ -202,10 +206,52 @@ function check_magiskpatchedimg() {
 }
 
 
+function initialize_tempdir() {
+  # global $SCRIPT must be set before calling this function
+  local SCRIPTDIR="$( dirname "$SCRIPT" )"
+
+  # $DIR must be global
+  # DO NOT set global $DIR outside of this function
+
+  [ -n "$DIR" ] && return 0     # If already created & entered, do nothing and return
+
+  if [ -n "$TMPDIR" ] && [[ "$(realpath "$TMPDIR")" != /storage/* ]] && [ -r "$TMPDIR" -a -w "$TMPDIR" -a -x "$TMPDIR" ]; then
+    cd "$TMPDIR"
+  elif [ -n "$HOME" ] && [[ "$(realpath "$HOME")" != /storage/* ]] && [ -r "$HOME" -a -w "$HOME" -a -x "$HOME" ]; then
+    cd "$HOME"
+  elif [ -n "$SCRIPTDIR" ] && [[ "$(realpath "$SCRIPTDIR")" != /storage/* ]] && [ -r "$SCRIPTDIR" -a -w "$SCRIPTDIR" -a -x "$SCRIPTDIR" ]; then
+    cd "$SCRIPTDIR"
+  else
+    echo "! Can't do file I/O in TMPDIR('${TMPDIR}') or HOME('${HOME}') or SCRIPTDIR('${SCRIPTDIR}')" 1>&2
+    return 1;
+  fi
+
+  local NAME="par-$(date '+%y%m%d-%H%M%S')"
+  if [ ! -e "$NAME" ]; then
+    mkdir "$NAME"
+  else
+    local A B C
+    for A in A B C D E F G H I J K L M N O P Q R S T U V W X Y Z; do
+      for B in A B C D E F G H I J K L M N O P Q R S T U V W X Y Z; do
+        for C in A B C D E F G H I J K L M N O P Q R S T U V W X Y Z; do
+          if [ ! -e "$NAME-$A$B$C" ]; then
+            NAME="$NAME-$A$B$C"
+            mkdir "$NAME"
+            break 3
+          fi
+        done
+      done
+    done
+  fi
+
+  chmod 700 "$NAME"
+  cd "$NAME"
+  DIR="$PWD"
+  return 0
+}
+
+
 function extract_magiskboot() {
-  # $DIR and $PWD_PREV must be global
-  DIR=""
-  PWD_PREV="$PWD"
 
   # (1) Detect Magisk app 21402+
 
@@ -218,8 +264,7 @@ function extract_magiskboot() {
     if [ "$APP_VER" -ge 21402 ]; then
       echo "* Magisk app version code:   [${APP_VER}] >= 21402" 1>&2
       # In Terminal Emulator app, $TMPDIR is empty
-      DIR="$( [ -n "$TMPDIR" ] && mktemp -d || mktemp -d -p "$( dirname "$0" )" )"
-      cd "$DIR"
+      initialize_tempdir || return $?
       echomsg "- Extracting magiskboot from Magisk app" "           (unzip)"
       if extract_magiskboot_fromapk "$APP"; then
         return 0
@@ -286,11 +331,7 @@ function extract_magiskboot() {
 
   if [ -n "$APK" ]; then
     echo "* Magisk apk:                [${APK}]" 1>&2
-    if [ -z "$DIR" ]; then
-      # In Terminal Emulator app, $TMPDIR is empty
-      DIR="$( [ -n "$TMPDIR" ] && mktemp -d || mktemp -d -p "$( dirname "$0" )" )"
-      cd "$DIR"
-    fi
+    initialize_tempdir || return $?
     echomsg "- Extracting magiskboot from Magisk apk" "           (unzip)"
     if extract_magiskboot_fromapk "$APK"; then
       return 0
@@ -348,7 +389,7 @@ function extract_magiskboot() {
     if [ -z "$ZIP_TYPE0" ]; then
       echo "! Magisk zip is not found in /sdcard/Download (v19.4+ required)" 1>&2
       if [ -n "$DIR" ]; then
-        cd "$PWD_PREV"
+        cd ..
         [ "$KEEP_TEMPDIR" = "true" ] || rm -rf "$DIR"
       fi
       return 2
@@ -366,17 +407,13 @@ function extract_magiskboot() {
   fi
 
   echo "* Magisk zip:                [${ZIP}]" 1>&2
-  if [ -z "$DIR" ]; then
-    # In Terminal Emulator app, $TMPDIR is empty
-    DIR="$( [ -n "$TMPDIR" ] && mktemp -d || mktemp -d -p "$( dirname "$0" )" )"
-    cd "$DIR"
-  fi
+  initialize_tempdir || return $?
   echomsg "- Extracting magiskboot from Magisk zip" "           (unzip)"
   if extract_magiskboot_fromzip "$ZIP"; then
     return 0
   else
     echo "! Magisk zip does not contain 'arm/magiskboot'" 1>&2
-    cd "$PWD_PREV"
+    cd ..
     [ "$KEEP_TEMPDIR" = "true" ] || rm -rf "$DIR"
     return 4
   fi
@@ -553,7 +590,7 @@ test_bootimg
 sha1sum /sdcard/Download/boot.img $INPUT 1>&2
 sha1sum $OUTPUT
 
-cd "$PWD_PREV"
+cd ..
 [ "$KEEP_TEMPDIR" = "true" ] || rm -rf "$DIR"
 [ "$SELF_REMOVAL" != "true" ] || rm "$0"
 exit 0
