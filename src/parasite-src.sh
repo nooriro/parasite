@@ -202,6 +202,23 @@ function extract_magiskboot_fromzip() {
 
 # Subroutines ----------------------------------------------------------
 
+function check_storage_permission() {
+  local PATH="/sdcard/Download"
+  local READ WRITE EXECUTE
+  [ -r "$PATH" ] && READ="r" || READ="-"
+  [ -w "$PATH" ] && WRITE="w" || WRITE="-"
+  [ -x "$PATH" ] && EXECUTE="x" || EXECUTE="-"
+  local PERMISSION="${READ}${WRITE}${EXECUTE}"
+  if [ "$PERMISSION" = "rwx" ]; then
+    is_verbose && echo "* Storage permission:        [${PERMISSION}] = rwx" 1>&2
+    return 0
+  else
+    echo "! Storage permission:        [${PERMISSION}] != rwx" 1>&2
+    return 1
+  fi
+}
+
+
 function check_magiskpatchedimg() {
 
   # pre 7.1.2(208):                    patched_boot.img
@@ -588,6 +605,7 @@ function test_bootimg() {
 
 
 
+check_storage_permission || finalize $?
 check_magiskpatchedimg || finalize $?
 extract_magiskboot || finalize $?
 
