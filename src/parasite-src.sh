@@ -129,13 +129,17 @@ function extract_magiskboot_fromzip() {
 # Subroutines ----------------------------------------------------------
 
 function check_magiskpatchedimg() {
-  local MAGISKPATCHEDIMG="/sdcard/Download/magisk_patched.img"
+
   # pre 7.1.2(208):                    patched_boot.img
   # app 7.1.2(208)-7.5.1(267):         magisk_patched.img
   # app 8.0.0(302)-1469b82a(315):      magisk_patched.img or 'magisk_patched (n).img'
   # app d0896984(316)-f152b4c2(22005): magisk_patched_XXXXX.img
   # app 66e30a77(22006)-latest:        magisk_patched-VVVVV_XXXXX.img
-  local IMG="$( ls -1t $MAGISKPATCHEDIMG \
+
+  # Marshmallow's toolbox ls command has neither -1 nor -t option
+  # Workaround: Run toybox ls directly using '/system/bin/toybox ls' command
+  local MAGISKPATCHEDIMG="/sdcard/Download/magisk_patched.img"
+  local IMG="$( /system/bin/toybox ls -1t $MAGISKPATCHEDIMG \
       /sdcard/Download/magisk_patched\ \([1-9]\).img \
       /sdcard/Download/magisk_patched\ \([1-9][0-9]\).img \
       /sdcard/Download/magisk_patched_[0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z].img \
@@ -199,19 +203,19 @@ function extract_magiskboot() {
   # If at least one of $APK_TYPE[1-4] exists, the latest version of $APK_TYPE[1-4] is used.
   # Otherwise $APK_TYPE0 is used, if it exists.
 
-  local APK_TYPE0=$( ls -1 /sdcard/Download/app-debug.apk 2>/dev/null )
-  local APK_TYPE1=$( ls -1 /sdcard/Download/Magisk-6951d926\(21402\).apk \
+  local APK_TYPE0=$( /system/bin/toybox ls -1 /sdcard/Download/app-debug.apk 2>/dev/null )
+  local APK_TYPE1=$( /system/bin/toybox ls -1 /sdcard/Download/Magisk-6951d926\(21402\).apk \
       /sdcard/Download/Magisk-4cc41ecc\(21403\).apk  /sdcard/Download/Magisk-b1dbbdef\(21404\).apk \
       /sdcard/Download/Magisk-07bd36c9\(21405\).apk  /sdcard/Download/Magisk-6fb20b3e\(21406\).apk \
       /sdcard/Download/Magisk-0646f48e\(21407\).apk  /sdcard/Download/Magisk-721dfdf5\(21408\).apk \
       /sdcard/Download/Magisk-8476eb9f\(21409\).apk  /sdcard/Download/Magisk-b76c80e2\(21410\).apk \
       /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(2[2-9][0-9][0-9][0-9]\).apk \
       2>/dev/null | sort -k 2 -t \( | tail -n 1  )
-  local APK_TYPE2=$( ls -1 /sdcard/Download/Magisk-v2[2-9].[0-9].apk \
+  local APK_TYPE2=$( /system/bin/toybox ls -1 /sdcard/Download/Magisk-v2[2-9].[0-9].apk \
       2>/dev/null | tail -n 1  )
-  local APK_TYPE3=$( ls -1 /sdcard/Download/Magisk-v2[2-9].[0-9]\(2[2-9][0-9]00\).apk \
+  local APK_TYPE3=$( /system/bin/toybox ls -1 /sdcard/Download/Magisk-v2[2-9].[0-9]\(2[2-9][0-9]00\).apk \
       2>/dev/null | tail -n 1  )
-  local APK_TYPE4=$( ls -1 /sdcard/Download/Magisk-2[2-9].[0-9]\(2[2-9][0-9]00\).apk \
+  local APK_TYPE4=$( /system/bin/toybox ls -1 /sdcard/Download/Magisk-2[2-9].[0-9]\(2[2-9][0-9]00\).apk \
       2>/dev/null | tail -n 1  )
   local APK_TYPE1_VER="-1"; [ -n "$APK_TYPE1" ] && APK_TYPE1_VER="${APK_TYPE1:33:5}"
   local APK_TYPE2_VER="-1"; [ -n "$APK_TYPE2" ] && APK_TYPE2_VER="${APK_TYPE2:25:2}${APK_TYPE2:28:1}00"
@@ -266,23 +270,23 @@ function extract_magiskboot() {
   # If at least one of $ZIP_TYPE[1-4] exists, the latest version of $ZIP_TYPE[1-4] is used.
   # Otherwise $ZIP_TYPE0 is used, if it exists.
 
-  local ZIP_TYPE0=$( ls -1 /sdcard/Download/magisk-debug.zip 2>/dev/null )
-  local ZIP_TYPE1=$( ls -1 /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(194[0-9][0-9]\).zip \
+  local ZIP_TYPE0=$( /system/bin/toybox ls -1 /sdcard/Download/magisk-debug.zip 2>/dev/null )
+  local ZIP_TYPE1=$( /system/bin/toybox ls -1 /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(194[0-9][0-9]\).zip \
       /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(20[0-4][0-9][0-9]\).zip \
       /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(21[0-3][0-9][0-9]\).zip \
       /sdcard/Download/Magisk-f5593e05\(21401\).zip \
       2>/dev/null | sort -k 2 -t \( | tail -n 1  )
-  local ZIP_TYPE2=$( ls -1 /sdcard/Download/Magisk-v19.4.zip \
+  local ZIP_TYPE2=$( /system/bin/toybox ls -1 /sdcard/Download/Magisk-v19.4.zip \
       /sdcard/Download/Magisk-v2[0-1].[0-4].zip \
       2>/dev/null | tail -n 1  )
-  local ZIP_TYPE3=$( ls -1 /sdcard/Download/Magisk-v19.4\(19400\).zip \
+  local ZIP_TYPE3=$( /system/bin/toybox ls -1 /sdcard/Download/Magisk-v19.4\(19400\).zip \
       /sdcard/Download/Magisk-v20.0\(20000\).zip  /sdcard/Download/Magisk-v20.1\(20100\).zip \
       /sdcard/Download/Magisk-v20.2\(20200\).zip  /sdcard/Download/Magisk-v20.3\(20300\).zip \
       /sdcard/Download/Magisk-v20.4\(20400\).zip  /sdcard/Download/Magisk-v21.0\(21000\).zip \
       /sdcard/Download/Magisk-v21.1\(21100\).zip  /sdcard/Download/Magisk-v21.2\(21200\).zip \
       /sdcard/Download/Magisk-v21.3\(21300\).zip  /sdcard/Download/Magisk-v21.4\(21400\).zip \
       2>/dev/null | tail -n 1  )
-  local ZIP_TYPE4=$( ls -1 /sdcard/Download/Magisk-19.4\(19400\).zip \
+  local ZIP_TYPE4=$( /system/bin/toybox ls -1 /sdcard/Download/Magisk-19.4\(19400\).zip \
       /sdcard/Download/Magisk-20.0\(20000\).zip  /sdcard/Download/Magisk-20.1\(20100\).zip \
       /sdcard/Download/Magisk-20.2\(20200\).zip  /sdcard/Download/Magisk-20.3\(20300\).zip \
       /sdcard/Download/Magisk-20.4\(20400\).zip  /sdcard/Download/Magisk-21.0\(21000\).zip \
