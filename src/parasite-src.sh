@@ -24,6 +24,12 @@
 # ------------------------------------------------------------------------------
 
 
+# In terminal apps or adb shell interactive mode, $COLUMNS has the real value
+# Otherwise $COLUMNS is set to be 80
+# Note that below integer comparision treats non-number strings as zero integers
+[ "$COLUMNS" -gt 0 -a "$COLUMNS" -lt 80 ] && DETAIL="false" || DETAIL="true"
+
+
 # ---------- start of diag.rc contents ----------
 DIAG_RC_CONTENTS='on init
     chmod 666 /dev/diag
@@ -66,10 +72,9 @@ on property:sys.usb.ffs.ready=1 && property:sys.usb.config=diag,serial_cdev,rmne
 '
 # ---------- end of diag.rc contents ----------
 
-# In terminal apps or adb shell interactive mode, $COLUMNS has the real value
-# Otherwise $COLUMNS is set to be 80
-# Note that below integer comparision treats non-number strings as zero integers
-[ "$COLUMNS" -gt 0 -a "$COLUMNS" -lt 80 ] && DETAIL="false" || DETAIL="true"
+
+
+# Util functions -------------------------------------------------------
 
 # $1=MSG_PART1
 # $2=MSG_PART2  (show only if "$DETAIL" != "false")
@@ -84,7 +89,7 @@ function echomsg() {
 # some modification of grep_prop() in util_functions.sh in Magisk repo
 # https://github.com/topjohnwu/Magisk/blob/v22.1/scripts/util_functions.sh#L28-L34
 # $1=REGEX
-# $2...=PROP_FILE[]
+# $2...=PROP_FILE...
 function grep_prop() {
   local REGEX="s/^$1=//p"
   shift
@@ -92,144 +97,6 @@ function grep_prop() {
   [ -z "$FILES" ] && FILES='default.prop'
   cat $FILES 2>/dev/null | sed -n "$REGEX" | head -n 1
 }
-
-# must be run after unpacking (magisk patched) boot image
-# takes no arguments
-function test_bootimg() {
-  local SEP="------------------------------------------------------------------------------------------------"
-  if [ "$COLUMNS" = 80 -a "$LINES" = 24 ]; then
-    :  # 80x24 ---> non-interactive adb shell ---> do not resize $SEP
-  elif [ "$COLUMNS" -lt ${#SEP} ]; then
-    # Shrink $SEP length to match $COLUMN value
-    SEP="$( echo "$SEP" | cut -b 1-"$COLUMNS" )"
-  fi
-
-  local MANUFACTURER_THIS="$(getprop ro.product.manufacturer)"
-  local        MODEL_THIS="$(getprop ro.product.model)"
-  local       DEVICE_THIS="$(getprop ro.product.device)"
-  local         NAME_THIS="$(getprop ro.product.name)"
-  local  BUILDNUMBER_THIS="$(getprop ro.build.id)"
-  local  INCREMENTAL_THIS="$(getprop ro.build.version.incremental)"
-  local    TIMESTAMP_THIS="$(getprop ro.build.date.utc)"
-
-  local MANUFACTURER_BOOT MODEL_BOOT DEVICE_BOOT NAME_BOOT
-  local BUILDNUMBER_BOOT INCREMENTAL_BOOT TIMESTAMP_BOOT
-
-  # Extrating a file via magiskboot yields 'Bad system call' (exit code 159) in terminal apps w/o root
-  # Instead of magiskboot cpio command, Use toybox cpio (Android 6+ built-in) to extract files
-  mkdir ramdisk
-  cd ramdisk
-  /system/bin/cpio -i -F ../ramdisk.cpio 2>/dev/null
-  cd ..
-  # Normal copy (i.e running cp without any options) suffices.
-  # If ramdisk/default.prop is a symlink (like modern Pixel boot images),
-  # the dereferenced file is copied actually.
-  cp ramdisk/default.prop . 2>/dev/null
-  cp ramdisk/selinux_version . 2>/dev/null
-
-  if [ -f default.prop ]; then
-    # ALL Pixel boot images has these properties
-    # ALL Nexus boot images doesn't have these properties
-    MANUFACTURER_BOOT="$(grep_prop ro\\.product\\.manufacturer)"
-           MODEL_BOOT="$(grep_prop ro\\.product\\.model       )"
-          DEVICE_BOOT="$(grep_prop ro\\.product\\.device      )"
-            NAME_BOOT="$(grep_prop ro\\.product\\.name        )"
-    [ -z "$MANUFACTURER_BOOT" ] && MANUFACTURER_BOOT="$(grep_prop ro\\.product\\.vendor\\.manufacturer)"
-    [ -z        "$MODEL_BOOT" ] &&        MODEL_BOOT="$(grep_prop ro\\.product\\.vendor\\.model       )"
-    [ -z       "$DEVICE_BOOT" ] &&       DEVICE_BOOT="$(grep_prop ro\\.product\\.vendor\\.device      )"
-    [ -z         "$NAME_BOOT" ] &&         NAME_BOOT="$(grep_prop ro\\.product\\.vendor\\.name        )"
-     BUILDNUMBER_BOOT="$(grep_prop ro\\.build\\.id)"
-     INCREMENTAL_BOOT="$(grep_prop ro\\.build\\.version\\.incremental)"
-       TIMESTAMP_BOOT="$(grep_prop ro\\.build\\.date\\.utc)"
-
-    # ALL Pixel boot images / API 23-27 of Nexus
-    [ -z "$TIMESTAMP_BOOT" ] && TIMESTAMP_BOOT="$(grep_prop ro\\.bootimage\\.build\\.date\\.utc)"
-    local FP="$(grep_prop ro\\.bootimage\\.build\\.fingerprint)"
-    if [ -n "$FP" ]; then
-      # https://stackoverflow.com/questions/918886/how-do-i-split-a-string-on-a-delimiter-in-bash/29903172#29903172
-      # EXAMPLE of $FP: google/ryu/dragon:8.1.0/OPM8.190605.005/5749003:user/release-keys
-      [ -z        "$NAME_BOOT" ] &&        NAME_BOOT="$( echo "$FP" | cut -d "/" -f 2                   )"  # ryu
-      [ -z      "$DEVICE_BOOT" ] &&      DEVICE_BOOT="$( echo "$FP" | cut -d "/" -f 3 | cut -d ":" -f 1 )"  # dragon
-      [ -z "$BUILDNUMBER_BOOT" ] && BUILDNUMBER_BOOT="$( echo "$FP" | cut -d "/" -f 4                   )"  # OPM8.190605.005
-      [ -z "$INCREMENTAL_BOOT" ] && INCREMENTAL_BOOT="$( echo "$FP" | cut -d "/" -f 5 | cut -d ":" -f 1 )"  # 5749003
-    fi
-  fi
-
-  # API 25 of Pixel / API 21-25 of Nexus
-  if [ -f selinux_version ]; then
-    local FP2="$(cat selinux_version)"
-    if [ -n "$FP2" ]; then
-      # https://stackoverflow.com/questions/918886/how-do-i-split-a-string-on-a-delimiter-in-bash/29903172#29903172
-      # EXAMPLE of $FP2: google/occam/mako:5.1.1/LMY48T/2237560:user/dev-keys
-      [ -z        "$NAME_BOOT" ] &&        NAME_BOOT="$( echo "$FP2" | cut -d "/" -f 2                   )"  # occam
-      [ -z      "$DEVICE_BOOT" ] &&      DEVICE_BOOT="$( echo "$FP2" | cut -d "/" -f 3 | cut -d ":" -f 1 )"  # mako
-      [ -z "$BUILDNUMBER_BOOT" ] && BUILDNUMBER_BOOT="$( echo "$FP2" | cut -d "/" -f 4                   )"  # LMY48T
-      [ -z "$INCREMENTAL_BOOT" ] && INCREMENTAL_BOOT="$( echo "$FP2" | cut -d "/" -f 5 | cut -d ":" -f 1 )"  # 2237560
-    fi
-  fi
-
-  local RESULT
-  if [ -n "$NAME_BOOT" -a -n "$BUILDNUMBER_BOOT" -a -n "$INCREMENTAL_BOOT" ]; then
-    # boot image identified
-    if [ "$NAME_BOOT" = "$NAME_THIS" -a \
-         "$BUILDNUMBER_BOOT" = "$BUILDNUMBER_THIS" -a \
-         "$INCREMENTAL_BOOT" = "$INCREMENTAL_THIS" ]; then
-      RESULT="good"
-    else
-      RESULT="bad"
-    fi
-  else
-    # boot image cannot be identified
-    RESULT="dontknow"
-  fi
-  
-  # head command (of toybox) in Oreo 8.0 does not support -c option.
-  # Use cut -b / cut -c command instead:
-  #   echo "----------" | cut -b 1-3
-  # Note that cut -b adds newline at the end of output (like echo), while head -c does not.
-  #   echo "----------" | head -c 3 | xxd -g1
-  #   echo "----------" | cut -b 1-3 | xxd -g1
-  # Another method: Use sed to change every character to '-'
-  #   ---> Doesn't work in adb shell on Android 6 on Nexus 7 2013 (infinity loop on sed s/./-/g )
-  #   ---> Use cub -b 1-N instead.
-  [ -z "$MANUFACTURER_BOOT" ] && MANUFACTURER_BOOT="$( echo "$SEP" | cut -b 1-${#MANUFACTURER_THIS} )"
-  [ -z        "$MODEL_BOOT" ] &&        MODEL_BOOT="$( echo "$SEP" | cut -b 1-${#MODEL_THIS}        )"
-  [ -z       "$DEVICE_BOOT" ] &&       DEVICE_BOOT="$( echo "$SEP" | cut -b 1-${#DEVICE_THIS}       )"
-  [ -z         "$NAME_BOOT" ] &&         NAME_BOOT="$( echo "$SEP" | cut -b 1-${#NAME_THIS}         )"
-  [ -z  "$BUILDNUMBER_BOOT" ] &&  BUILDNUMBER_BOOT="$( echo "$SEP" | cut -b 1-${#BUILDNUMBER_THIS}  )"
-  [ -z  "$INCREMENTAL_BOOT" ] &&  INCREMENTAL_BOOT="$( echo "$SEP" | cut -b 1-${#INCREMENTAL_THIS}  )"
-  [ -z    "$TIMESTAMP_BOOT" ] &&    TIMESTAMP_BOOT="$( echo "$SEP" | cut -b 1-${#TIMESTAMP_THIS}    )"
-
-  echo "$SEP" 1>&2
-  if [ "$DETAIL" = "false" ]; then
-    echo "  BOOT IMAGE:  [${NAME_BOOT}] [${BUILDNUMBER_BOOT}] [${INCREMENTAL_BOOT}]" 1>&2
-    echo "  THIS DEVICE: [${NAME_THIS}] [${BUILDNUMBER_THIS}] [${INCREMENTAL_THIS}]" 1>&2
-  else
-    echo "  BOOT IMAGE:  [${MANUFACTURER_BOOT}] [${MODEL_BOOT}] [${DEVICE_BOOT}] | [${NAME_BOOT}] [${BUILDNUMBER_BOOT}] [${INCREMENTAL_BOOT}]" 1>&2
-    echo "  THIS DEVICE: [${MANUFACTURER_THIS}] [${MODEL_THIS}] [${DEVICE_THIS}] | [${NAME_THIS}] [${BUILDNUMBER_THIS}] [${INCREMENTAL_THIS}]" 1>&2
-  fi
-  echo "$SEP" 1>&2
-
-  case "$RESULT" in
-    "good")
-      echo "  su -c \"setenforce 0; setprop sys.usb.configfs 1 && setprop sys.usb.config diag,serial_cdev,rmnet_gsi,adb\"" 1>&2
-      echo "$SEP" 1>&2
-      return 0
-      ;;
-    "bad")
-      echo "  *** WARNING: DO NOT FLASH 'magisk_patched.img' OR 'magisk_patched_diag.img' ON THIS DEVICE" 1>&2
-      echo "$SEP" 1>&2
-      return 1
-      ;;
-    "dontknow")
-      echo "  *** CAUTION: Boot image cannot be identified. DOUBLE CHECK where the boot image came from." 1>&2
-      echo "$SEP" 1>&2
-      return 2
-      ;;
-  esac
-  return 3
-}
-
 
 # $1=APKPATH
 function extract_magiskboot_fromapk() {
@@ -256,6 +123,40 @@ function extract_magiskboot_fromzip() {
     return 1
   fi
 }
+
+
+
+# Subroutines ----------------------------------------------------------
+
+function prepare_magiskpatchedimg() {
+  local MAGISKPATCHEDIMG="/sdcard/Download/magisk_patched.img"
+  # pre 7.1.2(208):                    patched_boot.img
+  # app 7.1.2(208)-7.5.1(267):         magisk_patched.img
+  # app 8.0.0(302)-1469b82a(315):      magisk_patched.img or 'magisk_patched (n).img'
+  # app d0896984(316)-f152b4c2(22005): magisk_patched_XXXXX.img
+  # app 66e30a77(22006)-latest:        magisk_patched-VVVVV_XXXXX.img
+  local IMG="$( ls -1t $MAGISKPATCHEDIMG \
+      /sdcard/Download/magisk_patched\ \([1-9]\).img \
+      /sdcard/Download/magisk_patched\ \([1-9][0-9]\).img \
+      /sdcard/Download/magisk_patched_[0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z].img \
+      /sdcard/Download/magisk_patched-2200[6-7]_[0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z].img \
+      /sdcard/Download/magisk_patched-22[1-9][0-9][0-9]_[0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z].img \
+      /sdcard/Download/magisk_patched-2[3-9][0-9][0-9][0-9]_[0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z].img \
+      2>/dev/null | head -n 1 )"
+  if [ -z "$IMG" ]; then
+    echo "! Magisk patched boot image is not found in /sdcard/Download" 1>&2
+    return 1
+  else
+    echo "* Magisk patched boot image: [${IMG}]" 1>&2
+    if [ "$IMG" != "$MAGISKPATCHEDIMG" ]; then
+      [ -f "$MAGISKPATCHEDIMG" ] && rm $MAGISKPATCHEDIMG
+      mv "$IMG" "$MAGISKPATCHEDIMG"
+      echo "            --- renamed ---> [${MAGISKPATCHEDIMG}]" 1>&2
+    fi
+  fi
+  return 0
+}
+
 
 function prepare_magiskboot() {
   # $DIR and $PWD_PREV must be global
@@ -437,34 +338,145 @@ function prepare_magiskboot() {
   fi
 }
 
-function prepare_magiskpatchedimg() {
-  local MAGISKPATCHEDIMG="/sdcard/Download/magisk_patched.img"
-  # pre 7.1.2(208):                    patched_boot.img
-  # app 7.1.2(208)-7.5.1(267):         magisk_patched.img
-  # app 8.0.0(302)-1469b82a(315):      magisk_patched.img or 'magisk_patched (n).img'
-  # app d0896984(316)-f152b4c2(22005): magisk_patched_XXXXX.img
-  # app 66e30a77(22006)-latest:        magisk_patched-VVVVV_XXXXX.img
-  local IMG="$( ls -1t $MAGISKPATCHEDIMG \
-      /sdcard/Download/magisk_patched\ \([1-9]\).img \
-      /sdcard/Download/magisk_patched\ \([1-9][0-9]\).img \
-      /sdcard/Download/magisk_patched_[0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z].img \
-      /sdcard/Download/magisk_patched-2200[6-7]_[0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z].img \
-      /sdcard/Download/magisk_patched-22[1-9][0-9][0-9]_[0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z].img \
-      /sdcard/Download/magisk_patched-2[3-9][0-9][0-9][0-9]_[0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z].img \
-      2>/dev/null | head -n 1 )"
-  if [ -z "$IMG" ]; then
-    echo "! Magisk patched boot image is not found in /sdcard/Download" 1>&2
-    return 1
-  else
-    echo "* Magisk patched boot image: [${IMG}]" 1>&2
-    if [ "$IMG" != "$MAGISKPATCHEDIMG" ]; then
-      [ -f "$MAGISKPATCHEDIMG" ] && rm $MAGISKPATCHEDIMG
-      mv "$IMG" "$MAGISKPATCHEDIMG"
-      echo "            --- renamed ---> [${MAGISKPATCHEDIMG}]" 1>&2
-    fi
-  fi
-  return 0
-}
+
+# must be run after unpacking (magisk patched) boot image
+# takes no arguments
+function test_bootimg() {
+  local SEP="------------------------------------------------------------------------------------------------"
+  if [ "$COLUMNS" = 80 -a "$LINES" = 24 ]; then
+    :  # 80x24 ---> non-interactive adb shell ---> do not resize $SEP
+  elif [ "$COLUMNS" -lt ${#SEP} ]; then
+    # Shrink $SEP length to match $COLUMN value
+    SEP="$( echo "$SEP" | cut -b 1-"$COLUMNS" )"
+  fi 
+
+  local MANUFACTURER_THIS="$(getprop ro.product.manufacturer)"
+  local        MODEL_THIS="$(getprop ro.product.model)"
+  local       DEVICE_THIS="$(getprop ro.product.device)"
+  local         NAME_THIS="$(getprop ro.product.name)"
+  local  BUILDNUMBER_THIS="$(getprop ro.build.id)"
+  local  INCREMENTAL_THIS="$(getprop ro.build.version.incremental)"
+  local    TIMESTAMP_THIS="$(getprop ro.build.date.utc)"
+
+  local MANUFACTURER_BOOT MODEL_BOOT DEVICE_BOOT NAME_BOOT
+  local BUILDNUMBER_BOOT INCREMENTAL_BOOT TIMESTAMP_BOOT
+
+  # Extrating a file via magiskboot yields 'Bad system call' (exit code 159) in terminal apps w/o root
+  # Instead of magiskboot cpio command, Use toybox cpio (Android 6+ built-in) to extract files
+  mkdir ramdisk
+  cd ramdisk
+  /system/bin/cpio -i -F ../ramdisk.cpio 2>/dev/null
+  cd ..
+  # Normal copy (i.e running cp without any options) suffices.
+  # If ramdisk/default.prop is a symlink (like modern Pixel boot images),
+  # the dereferenced file is copied actually.
+  cp ramdisk/default.prop . 2>/dev/null
+  cp ramdisk/selinux_version . 2>/dev/null
+
+  if [ -f default.prop ]; then
+    # ALL Pixel boot images has these properties
+    # ALL Nexus boot images doesn't have these properties
+    MANUFACTURER_BOOT="$(grep_prop ro\\.product\\.manufacturer)"
+           MODEL_BOOT="$(grep_prop ro\\.product\\.model       )"
+          DEVICE_BOOT="$(grep_prop ro\\.product\\.device      )"
+            NAME_BOOT="$(grep_prop ro\\.product\\.name        )"
+    [ -z "$MANUFACTURER_BOOT" ] && MANUFACTURER_BOOT="$(grep_prop ro\\.product\\.vendor\\.manufacturer)"
+    [ -z        "$MODEL_BOOT" ] &&        MODEL_BOOT="$(grep_prop ro\\.product\\.vendor\\.model       )"
+    [ -z       "$DEVICE_BOOT" ] &&       DEVICE_BOOT="$(grep_prop ro\\.product\\.vendor\\.device      )"
+    [ -z         "$NAME_BOOT" ] &&         NAME_BOOT="$(grep_prop ro\\.product\\.vendor\\.name        )"
+     BUILDNUMBER_BOOT="$(grep_prop ro\\.build\\.id)"
+     INCREMENTAL_BOOT="$(grep_prop ro\\.build\\.version\\.incremental)"
+       TIMESTAMP_BOOT="$(grep_prop ro\\.build\\.date\\.utc)"
+
+    # ALL Pixel boot images / API 23-27 of Nexus
+    [ -z "$TIMESTAMP_BOOT" ] && TIMESTAMP_BOOT="$(grep_prop ro\\.bootimage\\.build\\.date\\.utc)"
+    local FP="$(grep_prop ro\\.bootimage\\.build\\.fingerprint)"
+    if [ -n "$FP" ]; then
+      # https://stackoverflow.com/questions/918886/how-do-i-split-a-string-on-a-delimiter-in-bash/29903172#29903172
+      # EXAMPLE of $FP: google/ryu/dragon:8.1.0/OPM8.190605.005/5749003:user/release-keys
+      [ -z        "$NAME_BOOT" ] &&        NAME_BOOT="$( echo "$FP" | cut -d "/" -f 2                   )"  # ryu
+      [ -z      "$DEVICE_BOOT" ] &&      DEVICE_BOOT="$( echo "$FP" | cut -d "/" -f 3 | cut -d ":" -f 1 )"  # dragon
+      [ -z "$BUILDNUMBER_BOOT" ] && BUILDNUMBER_BOOT="$( echo "$FP" | cut -d "/" -f 4                   )"  # OPM8.190605.005
+      [ -z "$INCREMENTAL_BOOT" ] && INCREMENTAL_BOOT="$( echo "$FP" | cut -d "/" -f 5 | cut -d ":" -f 1 )"  # 5749003
+    fi 
+  fi 
+
+  # API 25 of Pixel / API 21-25 of Nexus
+  if [ -f selinux_version ]; then
+    local FP2="$(cat selinux_version)"
+    if [ -n "$FP2" ]; then
+      # https://stackoverflow.com/questions/918886/how-do-i-split-a-string-on-a-delimiter-in-bash/29903172#29903172
+      # EXAMPLE of $FP2: google/occam/mako:5.1.1/LMY48T/2237560:user/dev-keys
+      [ -z        "$NAME_BOOT" ] &&        NAME_BOOT="$( echo "$FP2" | cut -d "/" -f 2                   )"  # occam
+      [ -z      "$DEVICE_BOOT" ] &&      DEVICE_BOOT="$( echo "$FP2" | cut -d "/" -f 3 | cut -d ":" -f 1 )"  # mako
+      [ -z "$BUILDNUMBER_BOOT" ] && BUILDNUMBER_BOOT="$( echo "$FP2" | cut -d "/" -f 4                   )"  # LMY48T
+      [ -z "$INCREMENTAL_BOOT" ] && INCREMENTAL_BOOT="$( echo "$FP2" | cut -d "/" -f 5 | cut -d ":" -f 1 )"  # 2237560
+    fi 
+  fi 
+
+  local RESULT
+  if [ -n "$NAME_BOOT" -a -n "$BUILDNUMBER_BOOT" -a -n "$INCREMENTAL_BOOT" ]; then
+    # boot image identified
+    if [ "$NAME_BOOT" = "$NAME_THIS" -a \
+         "$BUILDNUMBER_BOOT" = "$BUILDNUMBER_THIS" -a \
+         "$INCREMENTAL_BOOT" = "$INCREMENTAL_THIS" ]; then
+      RESULT="good"
+    else
+      RESULT="bad"
+    fi 
+  else 
+    # boot image cannot be identified
+    RESULT="dontknow"
+  fi 
+  
+  # head command (of toybox) in Oreo 8.0 does not support -c option.
+  # Use cut -b / cut -c command instead:
+  #   echo "----------" | cut -b 1-3
+  # Note that cut -b adds newline at the end of output (like echo), while head -c does not.
+  #   echo "----------" | head -c 3 | xxd -g1
+  #   echo "----------" | cut -b 1-3 | xxd -g1
+  # Another method: Use sed to change every character to '-'
+  #   ---> Doesn't work in adb shell on Android 6 on Nexus 7 2013 (infinity loop on sed s/./-/g )
+  #   ---> Use cub -b 1-N instead.
+  [ -z "$MANUFACTURER_BOOT" ] && MANUFACTURER_BOOT="$( echo "$SEP" | cut -b 1-${#MANUFACTURER_THIS} )"
+  [ -z        "$MODEL_BOOT" ] &&        MODEL_BOOT="$( echo "$SEP" | cut -b 1-${#MODEL_THIS}        )"
+  [ -z       "$DEVICE_BOOT" ] &&       DEVICE_BOOT="$( echo "$SEP" | cut -b 1-${#DEVICE_THIS}       )"
+  [ -z         "$NAME_BOOT" ] &&         NAME_BOOT="$( echo "$SEP" | cut -b 1-${#NAME_THIS}         )"
+  [ -z  "$BUILDNUMBER_BOOT" ] &&  BUILDNUMBER_BOOT="$( echo "$SEP" | cut -b 1-${#BUILDNUMBER_THIS}  )"
+  [ -z  "$INCREMENTAL_BOOT" ] &&  INCREMENTAL_BOOT="$( echo "$SEP" | cut -b 1-${#INCREMENTAL_THIS}  )"
+  [ -z    "$TIMESTAMP_BOOT" ] &&    TIMESTAMP_BOOT="$( echo "$SEP" | cut -b 1-${#TIMESTAMP_THIS}    )"
+
+  echo "$SEP" 1>&2
+  if [ "$DETAIL" = "false" ]; then
+    echo "  BOOT IMAGE:  [${NAME_BOOT}] [${BUILDNUMBER_BOOT}] [${INCREMENTAL_BOOT}]" 1>&2
+    echo "  THIS DEVICE: [${NAME_THIS}] [${BUILDNUMBER_THIS}] [${INCREMENTAL_THIS}]" 1>&2
+  else 
+    echo "  BOOT IMAGE:  [${MANUFACTURER_BOOT}] [${MODEL_BOOT}] [${DEVICE_BOOT}] | [${NAME_BOOT}] [${BUILDNUMBER_BOOT}] [${INCREMENTAL_BOOT}]" 1>&2
+    echo "  THIS DEVICE: [${MANUFACTURER_THIS}] [${MODEL_THIS}] [${DEVICE_THIS}] | [${NAME_THIS}] [${BUILDNUMBER_THIS}] [${INCREMENTAL_THIS}]" 1>&2
+  fi 
+  echo "$SEP" 1>&2
+
+  case "$RESULT" in
+    "good")
+      echo "  su -c \"setenforce 0; setprop sys.usb.configfs 1 && setprop sys.usb.config diag,serial_cdev,rmnet_gsi,adb\"" 1>&2
+      echo "$SEP" 1>&2
+      return 0
+      ;;
+    "bad")
+      echo "  *** WARNING: DO NOT FLASH 'magisk_patched.img' OR 'magisk_patched_diag.img' ON THIS DEVICE" 1>&2
+      echo "$SEP" 1>&2
+      return 1
+      ;;
+    "dontknow")
+      echo "  *** CAUTION: Boot image cannot be identified. DOUBLE CHECK where the boot image came from." 1>&2
+      echo "$SEP" 1>&2
+      return 2
+      ;;
+  esac
+  return 3
+} 
+
+
 
 prepare_magiskpatchedimg || exit $?
 prepare_magiskboot || exit $?
