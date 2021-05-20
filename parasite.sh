@@ -178,13 +178,22 @@ function test_bootimg() {
     RESULT="dontknow"
   fi
   
-  [ -z "$MANUFACTURER_BOOT" ] && MANUFACTURER_BOOT="$( echo "$SEP" | head -c ${#MANUFACTURER_THIS} )"
-  [ -z        "$MODEL_BOOT" ] &&        MODEL_BOOT="$( echo "$SEP" | head -c ${#MODEL_THIS}        )"
-  [ -z       "$DEVICE_BOOT" ] &&       DEVICE_BOOT="$( echo "$SEP" | head -c ${#DEVICE_THIS}       )"
-  [ -z         "$NAME_BOOT" ] &&         NAME_BOOT="$( echo "$SEP" | head -c ${#NAME_THIS}         )"
-  [ -z  "$BUILDNUMBER_BOOT" ] &&  BUILDNUMBER_BOOT="$( echo "$SEP" | head -c ${#BUILDNUMBER_THIS}  )"
-  [ -z  "$INCREMENTAL_BOOT" ] &&  INCREMENTAL_BOOT="$( echo "$SEP" | head -c ${#INCREMENTAL_THIS}  )"
-  [ -z    "$TIMESTAMP_BOOT" ] &&    TIMESTAMP_BOOT="$( echo "$SEP" | head -c ${#TIMESTAMP_THIS}    )"
+  # head command (of toybox) in Oreo 8.0 does not support -c option.
+  # Use cut -b / cut -c command instead:
+  #   echo "----------" | cut -b 1-3
+  # Note that cut -b adds newline at the end of output (like echo), while head -c does not.
+  #   echo "----------" | head -c 3 | xxd -g1
+  #   echo "----------" | cut -b 1-3 | xxd -g1
+  # Another method: Use sed to change every character to '-'
+  #   ---> Doesn't work in adb shell on Android 6 on Nexus 7 2013 (infinity loop on sed s/./-/g )
+  #   ---> Use cub -b 1-N instead.
+  [ -z "$MANUFACTURER_BOOT" ] && MANUFACTURER_BOOT="$( echo "$SEP" | cut -b 1-${#MANUFACTURER_THIS} )"
+  [ -z        "$MODEL_BOOT" ] &&        MODEL_BOOT="$( echo "$SEP" | cut -b 1-${#MODEL_THIS}        )"
+  [ -z       "$DEVICE_BOOT" ] &&       DEVICE_BOOT="$( echo "$SEP" | cut -b 1-${#DEVICE_THIS}       )"
+  [ -z         "$NAME_BOOT" ] &&         NAME_BOOT="$( echo "$SEP" | cut -b 1-${#NAME_THIS}         )"
+  [ -z  "$BUILDNUMBER_BOOT" ] &&  BUILDNUMBER_BOOT="$( echo "$SEP" | cut -b 1-${#BUILDNUMBER_THIS}  )"
+  [ -z  "$INCREMENTAL_BOOT" ] &&  INCREMENTAL_BOOT="$( echo "$SEP" | cut -b 1-${#INCREMENTAL_THIS}  )"
+  [ -z    "$TIMESTAMP_BOOT" ] &&    TIMESTAMP_BOOT="$( echo "$SEP" | cut -b 1-${#TIMESTAMP_THIS}    )"
 
   echo "$SEP" 1>&2
   if [ "$DETAIL" = "false" ]; then
