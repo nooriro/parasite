@@ -97,7 +97,12 @@ function grep_prop() {
 # takes no arguments
 function test_bootimg() {
   local SEP="------------------------------------------------------------------------------------------------"
-  [ "$DETAIL" = "false" ] && SEP="${SEP:0:56}"
+  if [ "$COLUMNS" = 80 -a "$LINES" = 24 ]; then
+    :  # 80x24 ---> non-interactive adb shell ---> do not resize $SEP
+  elif [ "$COLUMNS" -lt ${#SEP} ]; then
+    # Shrink $SEP length to match $COLUMN value
+    SEP="$( echo "$SEP" | cut -b 1-"$COLUMNS" )"
+  fi
 
   local MANUFACTURER_THIS="$(getprop ro.product.manufacturer)"
   local        MODEL_THIS="$(getprop ro.product.model)"
