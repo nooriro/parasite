@@ -59,6 +59,7 @@ for ARG in "$@"; do
         "r")        SELF_REMOVAL="true"     ;;
         "m")        PARASITE_MORE="true"    ;;
         "l")        PARASITE_MORE="false"   ;;
+        "v")        PARASITE_VERBOSE="true" ;;
       esac
       I=$(expr $I + 1)
   done
@@ -74,6 +75,11 @@ function is_detail() {
   # Otherwise $COLUMNS is set to be 80
   # Note that below integer comparision treats non-number strings as zero integers
   [ "$COLUMNS" -gt 0 -a "$COLUMNS" -lt 70 ] && return 1 || return 0
+}
+
+# For verbose output
+function is_verbose() {
+  [ "$PARASITE_VERBOSE" = "true" ] && return 0 || return 1
 }
 
 
@@ -208,6 +214,7 @@ function check_magiskpatchedimg() {
       /sdcard/Download/magisk_patched-22[1-9][0-9][0-9]_[0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z].img \
       /sdcard/Download/magisk_patched-2[3-9][0-9][0-9][0-9]_[0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z].img \
       2>/dev/null | head -n 1 )"
+
   if [ -z "$IMG" ]; then
     echo "! Magisk patched boot image is not found in /sdcard/Download" 1>&2
     return 1
@@ -217,6 +224,10 @@ function check_magiskpatchedimg() {
       [ -f "$MAGISKPATCHEDIMG" ] && rm $MAGISKPATCHEDIMG
       mv "$IMG" "$MAGISKPATCHEDIMG"
       echo "            --- renamed ---> [${MAGISKPATCHEDIMG}]" 1>&2
+    fi
+    if is_verbose; then
+      local TIME="$(stat -c %y "$MAGISKPATCHEDIMG")"
+      echo "* Patched boot image mtime:  [${TIME:0:23}]" 1>&2
     fi
   fi
   return 0
