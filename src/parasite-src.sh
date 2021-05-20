@@ -128,7 +128,7 @@ function extract_magiskboot_fromzip() {
 
 # Subroutines ----------------------------------------------------------
 
-function prepare_magiskpatchedimg() {
+function check_magiskpatchedimg() {
   local MAGISKPATCHEDIMG="/sdcard/Download/magisk_patched.img"
   # pre 7.1.2(208):                    patched_boot.img
   # app 7.1.2(208)-7.5.1(267):         magisk_patched.img
@@ -158,7 +158,7 @@ function prepare_magiskpatchedimg() {
 }
 
 
-function prepare_magiskboot() {
+function extract_magiskboot() {
   # $DIR and $PWD_PREV must be global
   DIR=""
   PWD_PREV="$PWD"
@@ -478,8 +478,8 @@ function test_bootimg() {
 
 
 
-prepare_magiskpatchedimg || exit $?
-prepare_magiskboot || exit $?
+check_magiskpatchedimg || exit $?
+extract_magiskboot || exit $?
 
 INPUT="/sdcard/Download/magisk_patched.img"
 OUTPUT="/sdcard/Download/magisk_patched_diag.img"
