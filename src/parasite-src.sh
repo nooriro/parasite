@@ -60,6 +60,7 @@ for ARG in "$@"; do
         "m")        PARASITE_MORE="true"    ;;
         "l")        PARASITE_MORE="false"   ;;
         "v")        PARASITE_VERBOSE="true" ;;
+        "d")        PARASITE_DEBUG="true"   ;;
       esac
       I=$(expr $I + 1)
   done
@@ -81,6 +82,12 @@ function is_detail() {
 function is_verbose() {
   [ "$PARASITE_VERBOSE" = "true" ] && return 0 || return 1
 }
+
+# For debugging
+function is_debug() {
+  [ "$PARASITE_DEBUG" = "true" ] && return 0 || return 1
+}
+is_debug && set -x
 
 
 # Absolute cannonical path of this script
@@ -157,10 +164,10 @@ function grep_prop() {
 function finalize() {
   if [ -n "$DIR" ]; then
     cd ..
-    [ "$KEEP_TEMPDIR" = "true" ] || rm -rf "$DIR"
+    is_debug || [ "$KEEP_TEMPDIR" = "true" ] || rm -rf "$DIR"
   fi
   if [ "$1" -eq 0 ]; then
-    [ "$SELF_REMOVAL" != "true" ] || rm "$SCRIPT"
+    is_debug || [ "$SELF_REMOVAL" != "true" ] || rm "$SCRIPT"
   fi
   [ -n "$1" ] && exit "$1"
 }
