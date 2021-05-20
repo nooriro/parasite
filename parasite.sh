@@ -472,7 +472,7 @@ prepare_magiskboot || exit $?
 INPUT="/sdcard/Download/magisk_patched.img"
 OUTPUT="/sdcard/Download/magisk_patched_diag.img"
 
-echomsg "- Dropping diag.rc contained in this script" "       (printf & redirection)"
+echomsg "- Dropping diag.rc" "                                (printf >)"
 printf "%s" "$DIAG_RC_CONTENTS" > diag.rc
 
 echomsg "- Unpacking magisk_patched.img" "                    (magiskboot unpack)"
@@ -491,7 +491,7 @@ cp new-boot.img $OUTPUT 2>/dev/null
 
 echo "* New patched boot image:    [${OUTPUT}]" 1>&2
 SHA1_ORIG=$( ./magiskboot cpio ramdisk.cpio sha1 2>/dev/null )
-echo "* Stock boot image SHA1:     [${SHA1_ORIG}]" 1>&2
+echo "* Stock boot image SHA-1:    [${SHA1_ORIG}]" 1>&2
 
 test_bootimg
 sha1sum /sdcard/Download/boot.img $INPUT 1>&2
