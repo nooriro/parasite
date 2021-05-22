@@ -57,10 +57,10 @@ for ARG in "$@"; do
       case "$CHAR" in
         "k")        KEEP_TEMPDIR="true"     ;;
         "r")        SELF_REMOVAL="true"     ;;
-        "m")        PARASITE_MORE="true"    ;;
-        "l")        PARASITE_MORE="false"   ;;
-        "v")        PARASITE_VERBOSE="true" ;;
-        "d")        PARASITE_DEBUG="true"   ;;
+        "m") export PARASITE_MORE="true"    ;;
+        "l") export PARASITE_MORE="false"   ;;
+        "v") export PARASITE_VERBOSE="true" ;;
+        "d") export PARASITE_DEBUG="true"   ;;
       esac
       I=$(expr $I + 1)
   done
@@ -90,6 +90,10 @@ function is_debug() {
 is_debug && set -x
 
 
+# For Termux on some old Android versions
+printenv LD_LIBRARY_PATH > /dev/null && LD_LIBRARY_PATH_BACKUP="$LD_LIBRARY_PATH"
+printenv LD_PRELOAD      > /dev/null && LD_PRELOAD_BACKUP="$LD_PRELOAD"
+
 # Absolute cannonical path of this script
 # On Oreo 8.1, readlink -f does not work. Use realpath instead.
 SCRIPT="$(realpath "$0")"
@@ -100,6 +104,12 @@ SCRIPT="$(realpath "$0")"
 # 28 = Pie 9.0        29 = Q 10.0         30 = R 11.0            31 = S 12.0
 API=$(getprop ro.build.version.sdk)
 
+
+# CRC32 / MD5 / SHA-1 / SHA-256 hash values of classes.dex
+DEX_EXPECTED_CRC32="b007f47b"
+DEX_EXPECTED_MD5="9dd04e7533f6087cfef09fa89685e114"
+DEX_EXPECTED_SHA1="00b0cc1ad3ea2b614dd14aac9b02db4570229f6f"
+DEX_EXPECTED_SHA256="6d2d59abed2d2d472ead09553c153de97f64dc19be4b450d324897b1cb4e309a"
 
 # ---------- start of diag.rc contents ----------
 DIAG_RC_CONTENTS='on init
@@ -178,31 +188,26 @@ function finalize() {
   [ -n "$1" ] && exit "$1"
 }
 
-# $1=APKPATH
-function extract_magiskboot_fromapk() {
-  unzip "$1" lib/armeabi-v7a/libmagiskboot.so > /dev/null
-  if [ -f lib/armeabi-v7a/libmagiskboot.so ]; then
-    mv lib/armeabi-v7a/libmagiskboot.so magiskboot
-    chmod u+x magiskboot  # mandatory for Termux app
-    rm -rf lib
-    return 0
-  else
-    return 1
-  fi
-}
-
-# $1=ZIPPATH
-function extract_magiskboot_fromzip() {
-  unzip "$1" arm/magiskboot > /dev/null
-  if [ -f arm/magiskboot ]; then
-    mv arm/magiskboot .
-    chmod u+x magiskboot  # mandatory for Termux app
-    rm -rf arm
-    return 0
-  else
-    return 1
-  fi
-}
+function run_class() {
+  is_verbose && [ ! -f classes.dex ] && { local DATETIME="$(date '+%Y-%m-%d %H:%M:%S.%N')"; echo "* DEX extracting start:      [${DATETIME:0:23}]" 1>&2; }
+  [ -f classes.dex ] || tail -n +513 "$SCRIPT" > classes.dex
+  
+  is_verbose && { local DATETIME="$(date '+%Y-%m-%d %H:%M:%S.%N')"; echo "* DEX running start:         [${DATETIME:0:23}]" 1>&2; }
+  unset LD_LIBRARY_PATH LD_PRELOAD
+  if [ $API -ge 26 ]; then
+    /system/bin/app_process -cp classes.dex . "$@"
+  else 
+    CLASSPATH=$DIR/classes.dex /system/bin/app_process . "$@"
+  fi 
+  local EXITCODE=$?
+  is_verbose && { local DATETIME="$(date '+%Y-%m-%d %H:%M:%S.%N')"; echo "* DEX running finish:        [${DATETIME:0:23}]" 1>&2; }
+  
+  # How to check if a variable is set in Bash?
+  # https://stackoverflow.com/questions/3601515/how-to-check-if-a-variable-is-set-in-bash/13864829#13864829
+  [ -z ${LD_LIBRARY_PATH_BACKUP+x} ] || export LD_LIBRARY_PATH="$LD_LIBRARY_PATH_BACKUP"
+  [ -z ${LD_PRELOAD_BACKUP+x}      ] || export LD_PRELOAD="$LD_PRELOAD_BACKUP"
+  return $EXITCODE
+} 
 
 
 
@@ -322,165 +327,11 @@ function initialize_tempdir() {
 
 
 function extract_magiskboot() {
-
-  # (1) Detect Magisk app 21402+
-
-  # In every terminal app without root, pm command does not work
-  local APP="$( pm path com.topjohnwu.magisk | grep base\\.apk )"
-  [ "${APP:0:8}" = "package:" ] && APP="${APP:8}" || APP=""
-
-  if [ -n "$APP" ]; then
-    local APP_VER=$( dumpsys package com.topjohnwu.magisk | grep -o 'versionCode=[0-9]*' | cut -d "=" -f 2 )
-    if [ "$APP_VER" -ge 21402 ]; then
-      echo "* Magisk app version code:   [${APP_VER}] >= 21402" 1>&2
-      # In Terminal Emulator app, $TMPDIR is empty
-      initialize_tempdir || return $?
-      echomsg "- Extracting magiskboot from Magisk app" "           (unzip)"
-      if extract_magiskboot_fromapk "$APP"; then
-        return 0
-      else
-        echo "! Magisk app does not contain 'lib/armeabi-v7a/libmagiskboot.so'" 1>&2
-      fi
-    else
-      echo "! Magisk app version code:   [${APP_VER}] < 21402" 1>&2
-    fi
-  else
-    echo "! Magisk app is not detected" 1>&2
-  fi
-
-  # (2) Detect Magisk apk 21402+ in /sdcard/Download
-  echo "             --------------> Fallback to Magisk apk file" 1>&2
-
-  # $APK_TYPE0     = canary,          no version in filename
-  # $APK_TYPE1     = canary,         has version in filename
-  # $APK_TYPE[2-4] = stable or beta, has version in filename
-  #
-  # If at least one of $APK_TYPE[1-4] exists, the latest version of $APK_TYPE[1-4] is used.
-  # Otherwise $APK_TYPE0 is used, if it exists.
-
-  local APK_TYPE0=$( /system/bin/toybox ls -1 /sdcard/Download/app-debug.apk 2>/dev/null )
-  local APK_TYPE1=$( /system/bin/toybox ls -1 /sdcard/Download/Magisk-6951d926\(21402\).apk \
-      /sdcard/Download/Magisk-4cc41ecc\(21403\).apk  /sdcard/Download/Magisk-b1dbbdef\(21404\).apk \
-      /sdcard/Download/Magisk-07bd36c9\(21405\).apk  /sdcard/Download/Magisk-6fb20b3e\(21406\).apk \
-      /sdcard/Download/Magisk-0646f48e\(21407\).apk  /sdcard/Download/Magisk-721dfdf5\(21408\).apk \
-      /sdcard/Download/Magisk-8476eb9f\(21409\).apk  /sdcard/Download/Magisk-b76c80e2\(21410\).apk \
-      /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(2[2-9][0-9][0-9][0-9]\).apk \
-      2>/dev/null | sort -k 2 -t \( | tail -n 1  )
-  local APK_TYPE2=$( /system/bin/toybox ls -1 /sdcard/Download/Magisk-v2[2-9].[0-9].apk \
-      2>/dev/null | tail -n 1  )
-  local APK_TYPE3=$( /system/bin/toybox ls -1 /sdcard/Download/Magisk-v2[2-9].[0-9]\(2[2-9][0-9]00\).apk \
-      2>/dev/null | tail -n 1  )
-  local APK_TYPE4=$( /system/bin/toybox ls -1 /sdcard/Download/Magisk-2[2-9].[0-9]\(2[2-9][0-9]00\).apk \
-      2>/dev/null | tail -n 1  )
-  local APK_TYPE1_VER="-1"; [ -n "$APK_TYPE1" ] && APK_TYPE1_VER="${APK_TYPE1:33:5}"
-  local APK_TYPE2_VER="-1"; [ -n "$APK_TYPE2" ] && APK_TYPE2_VER="${APK_TYPE2:25:2}${APK_TYPE2:28:1}00"
-  local APK_TYPE3_VER="-1"; [ -n "$APK_TYPE3" ] && APK_TYPE3_VER="${APK_TYPE3:30:5}"
-  local APK_TYPE4_VER="-1"; [ -n "$APK_TYPE4" ] && APK_TYPE4_VER="${APK_TYPE4:29:5}"
-  # echo "$APK_TYPE1_VER  $APK_TYPE2_VER  $APK_TYPE3_VER  $APK_TYPE4_VER"
-
-  local APK
-  # If all of the $APK_TYPE[1-4] are empty (= that is, if there's no versioned Magisk apk file),
-  #    ---> Use $APK_TYPE0 (if exists)
-  # Otherwise,
-  #    ---> Use the latest version of $APK_TYPE[1-4]
-  if [ -z "$APK_TYPE1" -a -z "$APK_TYPE2" -a -z "$APK_TYPE3" -a -z "$APK_TYPE4" ]; then
-    if [ -z "$APK_TYPE0" ]; then
-      echo "! Magisk apk is not found in /sdcard/Download (v22.0+ required)" 1>&2
-    else
-      APK=$APK_TYPE0
-    fi
-  elif [ "$APK_TYPE1_VER" -ge "$APK_TYPE2_VER" -a "$APK_TYPE1_VER" -ge "$APK_TYPE3_VER" -a "$APK_TYPE1_VER" -ge "$APK_TYPE4_VER" ]; then
-    APK=$APK_TYPE1
-  elif [ "$APK_TYPE2_VER" -ge "$APK_TYPE3_VER" -a "$APK_TYPE2_VER" -ge "$APK_TYPE4_VER" ]; then
-    APK=$APK_TYPE2
-  elif [ "$APK_TYPE3_VER" -ge "$APK_TYPE4_VER" ]; then
-    APK=$APK_TYPE3
-  else
-    APK=$APK_TYPE4
-  fi
-
-  if [ -n "$APK" ]; then
-    echo "* Magisk apk:                [${APK}]" 1>&2
-    initialize_tempdir || return $?
-    echomsg "- Extracting magiskboot from Magisk apk" "           (unzip)"
-    if extract_magiskboot_fromapk "$APK"; then
-      return 0
-    else
-      echo "! Magisk apk does not contain 'lib/armeabi-v7a/libmagiskboot.so'" 1>&2
-    fi
-  fi
-
-
-  # (3) Detect Magisk zip 19400+ in /sdcard/Download (legacy method, deprecated)
-  echo "             --------------> Fallback to Magisk zip file" 1>&2
-
-  # $ZIP_TYPE0     = canary,          no version in filename
-  # $ZIP_TYPE1     = canary,         has version in filename
-  # $ZIP_TYPE[2-4] = stable or beta, has version in filename
-  #
-  # If at least one of $ZIP_TYPE[1-4] exists, the latest version of $ZIP_TYPE[1-4] is used.
-  # Otherwise $ZIP_TYPE0 is used, if it exists.
-
-  local ZIP_TYPE0=$( /system/bin/toybox ls -1 /sdcard/Download/magisk-debug.zip 2>/dev/null )
-  local ZIP_TYPE1=$( /system/bin/toybox ls -1 /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(194[0-9][0-9]\).zip \
-      /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(20[0-4][0-9][0-9]\).zip \
-      /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(21[0-3][0-9][0-9]\).zip \
-      /sdcard/Download/Magisk-f5593e05\(21401\).zip \
-      2>/dev/null | sort -k 2 -t \( | tail -n 1  )
-  local ZIP_TYPE2=$( /system/bin/toybox ls -1 /sdcard/Download/Magisk-v19.4.zip \
-      /sdcard/Download/Magisk-v2[0-1].[0-4].zip \
-      2>/dev/null | tail -n 1  )
-  local ZIP_TYPE3=$( /system/bin/toybox ls -1 /sdcard/Download/Magisk-v19.4\(19400\).zip \
-      /sdcard/Download/Magisk-v20.0\(20000\).zip  /sdcard/Download/Magisk-v20.1\(20100\).zip \
-      /sdcard/Download/Magisk-v20.2\(20200\).zip  /sdcard/Download/Magisk-v20.3\(20300\).zip \
-      /sdcard/Download/Magisk-v20.4\(20400\).zip  /sdcard/Download/Magisk-v21.0\(21000\).zip \
-      /sdcard/Download/Magisk-v21.1\(21100\).zip  /sdcard/Download/Magisk-v21.2\(21200\).zip \
-      /sdcard/Download/Magisk-v21.3\(21300\).zip  /sdcard/Download/Magisk-v21.4\(21400\).zip \
-      2>/dev/null | tail -n 1  )
-  local ZIP_TYPE4=$( /system/bin/toybox ls -1 /sdcard/Download/Magisk-19.4\(19400\).zip \
-      /sdcard/Download/Magisk-20.0\(20000\).zip  /sdcard/Download/Magisk-20.1\(20100\).zip \
-      /sdcard/Download/Magisk-20.2\(20200\).zip  /sdcard/Download/Magisk-20.3\(20300\).zip \
-      /sdcard/Download/Magisk-20.4\(20400\).zip  /sdcard/Download/Magisk-21.0\(21000\).zip \
-      /sdcard/Download/Magisk-21.1\(21100\).zip  /sdcard/Download/Magisk-21.2\(21200\).zip \
-      /sdcard/Download/Magisk-21.3\(21300\).zip  /sdcard/Download/Magisk-21.4\(21400\).zip \
-      2>/dev/null | tail -n 1  )
-  local ZIP_TYPE1_VER="-1"; [ -n "$ZIP_TYPE1" ] && ZIP_TYPE1_VER="${ZIP_TYPE1:33:5}"
-  local ZIP_TYPE2_VER="-1"; [ -n "$ZIP_TYPE2" ] && ZIP_TYPE2_VER="${ZIP_TYPE2:25:2}${ZIP_TYPE2:28:1}00"
-  local ZIP_TYPE3_VER="-1"; [ -n "$ZIP_TYPE3" ] && ZIP_TYPE3_VER="${ZIP_TYPE3:30:5}"
-  local ZIP_TYPE4_VER="-1"; [ -n "$ZIP_TYPE4" ] && ZIP_TYPE4_VER="${ZIP_TYPE4:29:5}"
-  # echo "$ZIP_TYPE1_VER  $ZIP_TYPE2_VER  $ZIP_TYPE3_VER  $ZIP_TYPE4_VER"
-
-  local ZIP
-  # If all of the $ZIP_TYPE[1-4] are empty (= that is, if there's no versioned Magisk zip file),
-  #    ---> Use $ZIP_TYPE0 or return error code
-  # Otherwise,
-  #    ---> Use the latest version of $ZIP_TYPE[1-4]
-  if [ -z "$ZIP_TYPE1" -a -z "$ZIP_TYPE2" -a -z "$ZIP_TYPE3" -a -z "$ZIP_TYPE4" ]; then
-    if [ -z "$ZIP_TYPE0" ]; then
-      echo "! Magisk zip is not found in /sdcard/Download (v19.4+ required)" 1>&2
-      return 2
-    else
-      ZIP=$ZIP_TYPE0
-    fi
-  elif [ "$ZIP_TYPE1_VER" -ge "$ZIP_TYPE2_VER" -a "$ZIP_TYPE1_VER" -ge "$ZIP_TYPE3_VER" -a "$ZIP_TYPE1_VER" -ge "$ZIP_TYPE4_VER" ]; then
-    ZIP=$ZIP_TYPE1
-  elif [ "$ZIP_TYPE2_VER" -ge "$ZIP_TYPE3_VER" -a "$ZIP_TYPE2_VER" -ge "$ZIP_TYPE4_VER" ]; then
-    ZIP=$ZIP_TYPE2
-  elif [ "$ZIP_TYPE3_VER" -ge "$ZIP_TYPE4_VER" ]; then
-    ZIP=$ZIP_TYPE3
-  else
-    ZIP=$ZIP_TYPE4
-  fi
-
-  echo "* Magisk zip:                [${ZIP}]" 1>&2
-  initialize_tempdir || return $?
-  echomsg "- Extracting magiskboot from Magisk zip" "           (unzip)"
-  if extract_magiskboot_fromzip "$ZIP"; then
-    return 0
-  else
-    echo "! Magisk zip does not contain 'arm/magiskboot'" 1>&2
-    return 4
-  fi
+  run_class ParasiteEmb > magiskboot
+  local EXITCODE=$?
+  # For Termux app, setting execution permission is mandatory
+  [ $EXITCODE -eq 0 ] && chmod u+x magiskboot || rm magiskboot
+  return $EXITCODE
 }
 
 
@@ -626,6 +477,7 @@ function test_bootimg() {
 check_os_api_level || finalize $?
 check_storage_permission || finalize $?
 check_magiskpatchedimg || finalize $?
+initialize_tempdir || finalize $?
 extract_magiskboot || finalize $?
 
 INPUT="/sdcard/Download/magisk_patched.img"
@@ -658,3 +510,203 @@ sha1sum $OUTPUT
 
 finalize   # no args == do not exit (finalize only)
 exit 0
+dex
+035 mÆV◊Ü©gH·˝x—·÷o‚kP÷Ì¿d  p   xV4        c  –  p   R   ∞  M   ¯  4   î  ∞   4     ¥  åO  4  v>  x>  {>  >  Æ>  ¬>  ˚>  ?  ?  +?  /?  S?  ã?  §?  Û?  5@  ^@  ~@  û@  °@  ß@  ´@  ∏@  ∆@  …@  È@  	A  )A  IA  _A  A  üA  øA  —A  ‚A  ÙA  ˝A  B  B  B  )B  0B  ZB  ]B  `B  rB  ÇB  ÖB  âB  éB  ëB  ïB  üB  ßB  ´B  ÆB  ˛B  7C  AC  wC  {C  ÄC  íC  ßC  ¿C  √C  ”C  ·C  ËC  ˙C  D  D  &D  5D  KD  XD  aD  |D  éD  ßD  ÀD  ŒD  ”D  ◊D  ‹D  ·D  ˜D  ˚D  ˛D  E  E  $E  'E  +E  :E  >E  CE  GE  KE  PE  VE  ]E  bE  vE  ÉE  êE  °E  ≤E  √E  ÍE  F  F  ;F  LF  PF  vF  °F  «F  ›F  ˚F  G  2G  KG  oG  îG  ¥G  ◊G  ˆG  H  ,H  FH  VH  lH  áH  ®H  øH  ÷H  ÛH  I  )I  @I  RI  dI  ~I  ëI  ¶I  ∏I  €I  ÔI  J  J  -J  GJ  bJ  vJ  çJ  ¨J  ÷J  ÙJ  K  FK  _K  vK  éK  †K  µK  ÀK  ›K  L  L  $L  <L  ML  gL  ÄL  óL  ±L  œL  ËL  ÙL  M  
+M  !M  2M  8M  HM  XM  hM  wM  âM  õM  ØM  ∑M  ÀM  ﬂM  ÊM  ÔM  ¯M  N  
+N  N  N   N  .N  EN  lN  oN  xN  |N  ÅN  ÖN  ãN  êN  îN  óN  úN  †N  §N  ®N  πN  ŒN  „N  ÊN  ÏN  ÛN  ¯N  ˇN  O  BO  ÄO  àO  îO  °O  ¶O  ´O  ∂O  ªO  ¿O  …O  —O  ◊O  ﬁO  ÓO  ÛO   P  P  P  #P  /P  :P  EP  RP  ]P  `P  dP  kP  sP  zP  åP  ìP  öP  üP  §P  ≠P  πP  ≈P  €P  ıP  Q  Q  Q  )Q  4Q  @Q  MQ  TQ  bQ  iQ  uQ  ÄQ  ôQ  üQ  ÆQ  ∂Q  ∆Q  —Q  ÷Q  ﬁQ  ÎQ  Q  ÛQ  R  R  R  R  %R  *R  0R  6R  =R  CR  MR  WR  aR  hR  oR  wR  ÇR  áR  õR  ¨R  ∂R  ¿R  –R  ›R  ÚR  S  S   S  0S  9S  FS  RS  ^S  mS  vS  ÄS  êS  †S  ®S  ¥S  ºS  øS  »S  ŒS  ŸS  „S  ÌS  ÒS  ÙS  ¯S  ¸S  T  T  T  ,T  4T  BT  VT  _T  iT  lT  tT  ÅT  âT  ´T  ≥T  ∫T  ƒT  ŒT  ŸT  ›T  „T  ÒT  ˇT  U  U  U  #U  -U  6U  ;U  DU  NU  SU  XU  bU  hU  oU  vU  ÄU  àU  êU  ôU  üU  •U  ´U  ∂U  √U  «U  ÀU  –U  ’U  „U  ÏU  ¯U  
+V  V  V  #V  0V  :V  @V  JV  QV  UV  \V  dV  mV  vV  {V  ÜV  ãV  ëV  õV  £V  ™V  ∂V  ƒV  ”V  ÿV  €V  ﬂV  ÁV  ÏV  ÚV  ˙V  W  
+W  W  W   W  &W  .W  5W  EW  MW  RW  ZW  bW  jW  uW  zW  ÄW  ÜW  åW  òW  •W  ØW  µW  ªW  √W   W  ”W  ‡W  ÛW   X  X  X  X  X  8X  =X  FX  @   P   W   ]   f   g   h   i   j   k   l   m   n   o   p   r   s   t   u   v   w   x   y   z   {   |   }   ~      Ä   Å   Ç   É   Ñ   Ö   Ü   á   à   â   ä   ã   å   ç   é   è   ê   ë   í   ì   î   ï   ñ   ó   ò   ô   ö   õ   ú   ù   û   †   ¢   £   §   •   ¶   ©   ™   ´   ¨   ≠   Æ   Ø   ∞   ±   Õ   ’   ÿ   Ÿ   ⁄   €   ‹   P          Q      t=  T      |=  T      Ñ=  R      å=  V      î=  R      ú=  S      §=  R      ¨=  W          X      ¥=  c      º=  a      »=  a      å=  [   $       a   $   –=  [   &       e   (   ÿ=  a   *   ‡=  [   ,       ^   -   Ë=  [   0       ^   0   Ë=  a   0   =  e   0   Ñ=  a   1   ¨=  [   2       [   3       ^   3   Ë=  _   3   t=  a   3   ¥=  e   3   ¯=  a   3   å=  e   3    >  e   3   ÿ=  a   3   >  a   3   ú=  b   3   §=  d   3   >  a   4   å=  \   5   >  ^   5   Ë=  `   5   $>  a   5   =  a   5   å=  q   5   î=  a   8   å=  [   @       [   D       [   H       a   H   å=  [   J       Õ   K       œ   K   Ë=  –   K   ,>  —   K   ¥=  —   K   4>  —   K   <>  —   K   D>  —   K   L>  —   K   =  —   K   å=  ”   K   T>  ”   K   \>  ‘   K   î=  —   K   ú=  “   K   d>  —   K   p>  —   K   ¨=  ’   L       ◊   L   ¥=  ◊   L   =  ◊   L   å=  [   M       a   M   ¥=  e   M   ¯=  a   O   d=    J     K     «    3 è   3 ∞    ≈   3 «   3 L    3 M     ∂    3 …    3 j    k   3 l   J m   3 n   3 M    3 N    3 Y    3 Z     ∂    3 …    3 j    k   3 l   J m   3 n  
+ 3 j  
+  k  
+ 3 l  
+ J m  
+ 3 n    F    3 =    3 I    3 ¿    3 ¡    3 »     G     H     µ        L     d   B A    B B    L E    3 ∑    3 »    L Œ   6 ( '  6 ( á   4 4    D o   4 4    &    %    $     V   = ô   6 ö   = 4    1 ;    D   E \   = 4    1 ;    D   E \   4 4    F Â    4 4    F Â   	 4 4   	    	    
+ = 4   
+ 1 ;  
+  >  
+  D  
+   F  
+  G  
+ 3 H  
+  I  
+ E \  
+  ã  
+  ø   1 ;    >    D     F    G   3 H    I   E \    ã   4 3    4 4     Ê    4    4    4 $   5 )   D o   D à   4 4    @ 4     ø   4 3    4 4     Ê    $                 J    
+    K     M   K N   D o    r   > â    ä   4 å   D å    ®    ™    5    Û     4    B   	      w   : 4    4     ù   ; 4     Ó    4    4 0   4 ~   = 4     <    ?   E X   E Y   L g  ! 7 4   $   ˚   $ 4   $  ú  % 8 4   ' 9 4   (  ñ  ( < ó  ( = ó  ( B »  ,  C  -  ê  -  æ  -  ƒ  .  u  0 4 4   0  6  1  8  1  =  2  (  2  A  3 A 4   3 C 4   3    3 G &  3 " 1  3   O  3  `  3   a  3 H q  3 ! †  3 ! °  3  ∏  3  ∏  4 4 4   4 ' Ó   5 4 4   5 ( Ó   5 ) Ó   5 * Ó   5 + Ó   5 , Ó   5 - Ó   5  ø  6 5 )  6   J  7  :  8 I   8 . 9  8 B ¬  : = 4   : # 1  ; 4 4   ; G Ë   ;  3  ; / ]  ;   Æ  < ? Ø  > 4 4   ? 4 4   @ E L  @    A G Ë   A / ]  A   Æ  B G   B  3  B 0 _  B  õ  C 4 4   C   @  C 8 i  D / ]  F = 4   G 4 4   G 	 E  G B ¬  J = 4   J 2 7  J  8        0       D       *b             0       ∏   T<  8b  Óa       0       Ω   d<  hb  ˚a  
+     0   \=  Ω   t<  íb            
+       ∏   Ñ<  ¬b  ˇa        
+       π   ú<  ‡b  
+b        0   d=  Ω   ¥<  c            0   d=  Ω   ¥<  c      	      0   l=  Ω   ƒ<  c            0       Ω   ‘<  1c  b         0       æ   ‰<  ic  #b        0       æ   Ù<  âc         Ra  Ya     da  ka     da  wa     Éa     åa     ïa  úa     ïa  úa  ¶a     ∑a     ¬a  …a     ‘a     ›a       QX     po         VX  2    !A5/ b3 "5 pÑ   n â 2 n Ü  0 n â 2 F n â 2 › n â 2 nã  n h ! ÿ  (—      iX     po    ÄY   [       sX     ; ⁄∞Ap0 2
+ê p0 2 (Ú     äX  '   ÿH‡ ˇ  µCH’Dˇ ñ# M 5! ÿ⁄∞CHO ÿ(Û"3 p u          ™X  $   ÿ H  ’ ˇ ‡  ÿH’ˇ ‡∂ÿH’ˇ ‡∂ÿ H’ˇ ‡ ∂       ≥X             ∫X  (   " 5 pÑ    ⁄ n|  
+q n C 
+n0Å !n â   n â p  nã    q    !     «X  ¸  "5 pÑ        p0 
+$ ⁄ê      p0 
+    !   ÿ¸  5     p0 
+    3  ˛ˇ   !      5d     p0 
+ÿ     p0 
+ÿ     p0 
+ÿ     p0 
+    3ßÿ     p0 
+ÿ     p0 
+ÿ$       pT 2 "4 vÇ    5     p0 
+ÿ     p0 
+ÿ     p0 
+ÿ     p0 
+ÿ     p0 
+	ÿ      pX 2ˇˇnz  
+,ÿ  +„  ˇˇ  2ô       p[ 2
+"5 vÑ   tâ    n â ` 5 tâ    n â †  tâ  tã     n É  ÿ) fˇÿ) Õ˛é  n x  
+8≠ˇ  (©«  n x  
+8†ˇ (ú≈  n x  
+8ìˇ (è      p[ 2   [ ) ˇ      p[ 2   [ ) kˇ  Y	 ) eˇ"5 vÑ  ¢tâ  ql 	 tâ  tã  
+) ^ˇ"5 vÑ  1 tâ     n â     n à  6 tâ  tã    n â  "5 vÑ  1 tâ     n â     n à  6 tâ  tã     p0 ‡ÿ9(˛pptx  
+8˛      3v ÿˇÿ       pT 2"5 vÑ  2 tâ     n â  6 tâ  tã    n â  "5 vÑ  2 tâ     n â  9 tâ     n Ü  & tâ    n Ü   tâ  tã     p0 ‡) û˝    3 nã  ) uˇ"5 vÑ   tâ  wl  tâ   tâ     n Ü  tã  w  (“  F4ÂœÂ)Éﬂ)N   h   [         r   Ü   ö        (Z     po   [        2Z     T          8Z     R          >Z     T          DZ     T          JZ     T        PZ  ∫   &n   
+	9	 b2 "5 pÑ  	 n â ò TŸ n â ò nã  n h Ü "	5 pÑ 	 
+O n â © 	8S n â È 	nã 	 "	 p 6 â Uô* 8	G b	2 
+' #kP Mq .   Mn0f ©TŸ n  
+n Ø © 	  #êM n c  
+˘2ë, ∞b	3 
+n@i 	(Úq .   q F 8 8 nb  =3 g(°n  (´b	2 
+( #{P Mn0f ©(¡8 nb  á(âq .   q F 8 8‹ˇnb  (◊(’8 nb  'v(Œ(‰(»(¯U     s     |     ñ     ú     •    	 Æ     ~Ir#õ´#© ´#¥#∂#∏     ·Z  Ü   ' " 5 pÑ   np  nj  n â   œn â   n   
+n ä   % n â   n  n â   n Ö    ! n â   R1 n Ü   " n â   T1 n â   n Ö      n â   T1 n â   n Ö    # n â   T1 n à   $ n â   T1 n â   n Ö    } n Ö   nã         ÓZ  s   	Òÿp  ∫ "F p © ∂ [¶ T¶ > n Æ v E 9 [® Y© [®  [® [® Y© [® (ˆT¶ n Ø & na  
+#eM n c S 
+ " p  n  T TF [¶ RF Y¶ TF [¶ 8–ˇnb  (À(…[¶ ÒÿY¶ [¶ 8Ωˇnb  (∏(∂8 nb  '(˛       +   $  Q     Y   	  d     m     I #UIWj#h j#q      N[  	   T  bn Æ            S[      <         X[  &   T  8 " T  8   	T! n x  
+ 8  T  8  R  öS4
+ n
+   8    (˛    ][  z   Òÿp  © [ó "J p ≠ • [ï Tï 
+n Æ e 9 [ó Yò   [ó [ó Yò (¯Tï n Ø  "C p•  n ß # ≤ n ¶ S ·   n0~ e[ï ≥ n ¶ S 8 qk  
+Yï 8 ˇnb  (≈(√ ÚÿYï (Û [ï ÒÿYï 8¥ˇnb  (Ø(≠8 nb  '(˛     '   #  M     U     ^     c     k     t     I#Y~/[IaqIaq#o q#x        ø[  	   T  Ò n Æ            ƒ[      ÷         …[     T  8  T  8  T  8  R  »K4
+ n   8    (˛     Œ[     po         ”[     n^  
+ 8  n[   „ n }  
+ 8    (˛     €[     po         ·[     n^  
+ 8  n[   ‰ n }  
+ 8    (˛     È[     po         Ô[  X   r&  
+	r&  
+
+ë 	
+8   r)  r)  ‚ n } s 
+	8	6 n } t 
+	8	0 	 n0 s		
+ n0 t
+
+n x © 
+8 8 	 n0 s		qk 	 
+	 n0 t		qk 	 
+ëÄ(º(“n w C 
+(¯     R\  	     n0 !
+          Z\  	     nj    i %         _\     po           d\     b %         i\  ≥  b2  th  " ,   p Z  " v    n _  	" v    n _  
+"; pî  !ê       5$ F	" n\    p 	  n  
+8 n ï % ÿ(‚b%   q F p (ı!†       5( F
+" n\     p   t  
+8   n ï  ÿ(ﬁb%   q F p (ı"	 v    q ô  nó  xú  
+8k xù   r)  "   p Z – wJ  +   n {  
+ÿ  n Ä  b2     # P           n0Å M r'  M r&  
+wm  M Mtf  (ù) b%   q F p (Æ    # P     nò  
+wm  Mwy  b2   n h 0 nò  
+=Ä nò  
+ÿˇ:Z nò  
+ÿˇ  n ñ   b2     # P     "5 vÑ  r%  tâ  . tâ  tã  M r)  Mtf      r +  
+9
+   w2  ÿˇ(≠   2˘ˇ   # Q     : M 8 M 7 Mw4   b2  th  (€  8     e     ®   
+  #O#Ä#˚     %]    	öSéqO  qM  9
+ b2 
+ n h e  	q Q   
+r@N Sv 8 · " nL   p 	 Q r&  
+4Ös b2 "5 pÑ   n â v r'  n â v › n â v nã  n h e b2 "5 pÑ   n â v r&  
+n Ü v ﬂ n â v n Ü Ü nã  n h e r*  
+8u Ï r + Q 
+9f q2 	 (äb% q F % b2  n h e ) |ˇb% q F % ) tˇb2 "5 pÑ   n â v r'  n â v › n â v nã  n h e b2 "5 pÑ   n â v r&  
+n Ü v ﬁ n â v n Ü Ü nã  n h e (è2§)ˇq2 
+ ) $ˇr#  9ˇb2  n h e ) ˇb2  n h e ) ˇ     
+  %   	  é#ù         ã]  _   c1 8\ " > pö   q P   ": Ãp í A b2 "5 pÑ   n â e n ì  n â e › n â e nã  n h T b2 "5 pÑ   n â e n0á %› n â e nã  n h T b2 " p5  n g T         ™]  X   c1 8R q P   " > pö   b2 "5 pÑ   n â e n0á %› n â e nã  n h T ": Ãp í A b2 "5 pÑ   n â e n ì  n â e › n â e nã  n h T qå        —]     q 1   q 0   q /   q2         ‹]  2   !s9  F* & n0~ Cn|  
+q <   
+q n C 
+n0Å bb2 n h #  !s50ﬁˇb2 F n h C ÿ  (Ù     ^      p 6         ^  v  po  q t   #ôQ 
+- M	
+n s ò 93 P Y»)  Y»+ ¿b	/ n x ò 
+9 *b	/ n x ò 
+9 R») 	F 4ò \»*  q :   q F ( (–(Û" "% nq  	p d ò p R Ü " "' nr  	p e ò p U á  P  "n V á nY  nX  nT  #n V á nY  nX  nT  8 nS  8 nW  qk  
+ qk  
+Y¿) Y√+ ¿b	/ n x ò 
+9 *b	/ n x ò 
+9 R») 	F 4ò \»* 8Åˇc1 8}ˇb2 n g » ) vˇ(q :   q F ( 8 nS  8 nW  qk  
+ qk  
+Y¿) Y√+ ¿b	/ n x ò 
+9 *b	/ n x ò 
+9 R») 	F 4ò \»* 87ˇc1 83ˇb2 n g » ) ,ˇ(â8 nS  8 nW  qk  
+ qk  
+Y¿) Y√+ ¿b
+/ n x ® 
+9 *b
+/ n x ® 
+9 R») 
+F 4® \»* 8 c1 8 b2 n g » '	(Ò) 5ˇ) 7ˇ) 8ˇ) 9ˇ) sˇ) uˇ) vˇ) wˇ(´(Æ(∞(≤     i     â     é     ë     ï          
+ ”     ÿ    ! €    % ﬂ    )    -    1    5 #   9 #<#…ì ì#÷#Ÿ/‹/ﬂ#‚#Â/Ë/Î#Ó#/Ú/Ù        ü^  4   " 5 pÑ    n â   R!) n Ü   ‡ n â   R!+ n Ü   ‡ n â   U!* n ä   › n â   nã           •^  Ø    nj  i0 ¿∫ qç  n x ! 
+j. ¿º qç  n x ! 
+j1 ª qç  i/ "? põ  i- "? põ  i, b- C r0§ !b- r¥ r0§ !b- ®¬ r0§ !b- ©√ r0§ !b- ™ƒ r0§ !b- ´≈ r0§ !b- ¨∆ r0§ !b- r£  r®  rú  
+8' rù    3 b, "5 pÑ  n â  ˛ n â C nã  b- r ¢  r0§ 2(÷        »^     po           Õ^     b 0         “^  @   
+ !t⁄#@N !t5B1 H›· H’D ·⁄ÿ 5a ÿ0éDP ⁄ÿ5c ÿ0éDP ÿ(Ÿÿˆÿa(Îÿˆÿa(Ò"3 p v        ˝^      q=   
+       _     "  p 6  R )       _      C q B      
+     _  0   ˇ q@ 	 A#M  §¿dÑAçO  §¿dÑDçDO ! §¿dÑDçDO 1§¿dÑDçDO  
+    +_  P   "G p™    #`M "! p ` ï n c  
+ˆ2a n@¨ (ıTn] 	 
+8 n´  8 nb  8 nb  n´  T(ı'8 nb  ''(Ô(Á(¯T(T(Ù(Œ
+             	  )     /    	 8     <     A     ~"#KH 9#B#D#F~"N#@9
+   	 ª_  Y   qê 	   #`M "! p ` Ö n c  
+ˆ2a" n@ë (ıTn]  
+8 nè  8 nb  b0 q F 6 #vM (˜8 nb  nè  (Ì'8 nb  ''((ﬂ(¯T(T(Ù(∆                    	 
+ *     9     A    
+ E     J    
+ ~"#TQ9. B#K#M#O~"W#IB      a`  	   q C !  q;            k`      C n x   
+ 8  q?    q A !  (˚     w`  /   !0=  b - Fr °  
+ 8  qG  
+ qå   q H   qå    b , Fr °  
+ 8 ˇqG  
+ qå   (Á       á`      ¥ q B           è`  H   np  nj  né   b2 "5 pÑ  	 n â C n â c / n â C 8  "5 pÑ  n â   n â T n â  nã  n â  nã  n h 2      ©`  ü   
+!Î=( b- F
+r ° À 
+8 b- F
+r ¢ À   3 "; pî  !Î5µ' Fr û ∏ ÿ(ˆ!Î= b, F
+r ° À 
+8 b, F
+r ¢ À   3 (◊q H   	r†  
+9 qI  (ˆ	C n x 	 
+rü  rú  
+	8	= rù  3 " p Z s q B  b3 8 n h L (‰b	0 q F ) (›"	5 pÑ 	 n â I 8 	 n â ù 	n â y 	nã 	 (‹	 (Ò©(©  m     Ä     #y      'a     b 2 Ã n h        -a  9   !A=4 F b- r °  
+9
+ b, r °  
+8! b2 "5 pÑ  À n â 2 n â   n â 2 nã  n h !  q H   (¸       Ba      ¬ q B           Ja      ƒ q B      4              @              L              X             	   `                    `  h              t              Ñ              å              ò     	       ,   †  -   †  >   `  ?   `  @   `  A   `  B   `  C   `  E   `  J   `  K   `                  =                0 0    3      L      M      M     Q            3              H      3 P    +            0       3    3 3    >      M                     3    $      &      )      *      3 7    A =    M        N        -                                                %s %-8s %5d  %s
+ 7  MAGISK FALLBACK FILES (APK or ZIP in Download folder)   Unrecognized tag code '  :  FILE [FILE...] !  "! Can't connect to package manager 6! Can't get application info of 'com.topjohnwu.magisk' ! Invalid Magisk file:  M! Magisk APK (21402+) or Magisk ZIP (19400+) is not found in /sdcard/Download @! Magisk app does not contain 'lib/armeabi-v7a/libmagiskboot.so' '! Magisk app is not installed or hidden ! Magisk app version code:   [ ! Magisk app version name:   [ " $1$3 $2 %8d FILE(S) ' at offset  ) * DEX finish:                [ * DEX start:                 [ * DEX thread time on finish: [ * DEX thread time on start:  [ * Magisk %-19s [%s]
+ * Magisk app version code:   [ * Magisk app version name:   [ * Terminal size:             [ , mPackageName=' , mVersionCode= , mVersionName=' , mZip= , mZipPath=' , type=' - - %-47s (%s >)
+ - %s
+ (---------------------------------------- . / /sdcard/Download /system/bin/sh : :  : [ < </ <clinit> <init> =" > N> (Canary) https://github.com/topjohnwu/magisk-files/blob/canary/app-debug.apk 7> (Public) https://github.com/topjohnwu/Magisk/releases > (line  4> Download Magisk APK in Chrome Mobile and try again >; APK APP_PACKAGE_NAME AndroidManifest.xml BaseMagiskBootContainer C CMD_ALGS_B_MAP CMD_ALGS_MAP CRC32 CmdLineArgs.java DEBUG DEFALT_VERSIONCODE DEFAULT_COLUMNS DEFAULT_LINES DOWNLOAD_FOLDER_PATH END_DOC_TAG END_TAG ENTRY_ANDROIDMANIFEST_XML ENTRY_MAGISKBOOT ENTRY_UTIL_FUNCTIONS_SH "Extracting magiskboot from Magisk  I III IL ILI ILL IMagiskBootContainer IZ J JL KEY_VERSIONCODE KEY_VERSIONNAME L LC LCmdLineArgs; LI LII LJ LL LLI LLII LLIII LLL LMagiskApk$Parser; LMagiskApk; LMagiskZip; LParasiteEmb$1; LParasiteEmb$2; LParasiteEmb$3; %LParasiteEmb$BaseMagiskBootContainer; "LParasiteEmb$IMagiskBootContainer; LParasiteEmb; LParasiteUtils$TerminalSize; LParasiteUtils; LZ $Landroid/content/pm/ApplicationInfo; )Landroid/content/pm/IPackageManager$Stub; $Landroid/content/pm/IPackageManager; Landroid/os/IBinder; Landroid/os/RemoteException; Landroid/os/ServiceManager; Landroid/os/SystemClock; Landroid/os/UserHandle; "Ldalvik/annotation/EnclosingClass; #Ldalvik/annotation/EnclosingMethod; Ldalvik/annotation/InnerClass; !Ldalvik/annotation/MemberClasses; Ldalvik/annotation/Signature; Ldalvik/annotation/Throws; Ljava/io/BufferedReader; Ljava/io/BufferedWriter; Ljava/io/File; Ljava/io/FileFilter; Ljava/io/FileInputStream; Ljava/io/FileNotFoundException; Ljava/io/IOException; Ljava/io/InputStream; Ljava/io/InputStreamReader; Ljava/io/OutputStream; Ljava/io/OutputStreamWriter; Ljava/io/PrintStream; Ljava/io/Reader; Ljava/io/Writer; Ljava/lang/CharSequence; Ljava/lang/Class; Ljava/lang/Integer; Ljava/lang/Math; !Ljava/lang/NumberFormatException; Ljava/lang/Object; Ljava/lang/Process; Ljava/lang/Runtime; Ljava/lang/String; Ljava/lang/StringBuffer; Ljava/lang/StringBuilder; Ljava/lang/System; Ljava/lang/Throwable; Ljava/security/MessageDigest; (Ljava/security/NoSuchAlgorithmException; Ljava/text/SimpleDateFormat; Ljava/util/ArrayList; 9Ljava/util/ArrayList<LParasiteEmb$IMagiskBootContainer;>; Ljava/util/Collections; Ljava/util/Comparator Ljava/util/Comparator; Ljava/util/Date; Ljava/util/HashMap; Ljava/util/Iterator; Ljava/util/List; $Ljava/util/List<Ljava/lang/String;>; Ljava/util/Map Ljava/util/Map; Ljava/util/Properties; Ljava/util/Set; Ljava/util/jar/JarEntry; Ljava/util/jar/JarFile; Ljava/util/zip/CRC32; Ljava/util/zip/ZipEntry; Ljava/util/zip/ZipException; Ljava/util/zip/ZipFile; 
+MAGISK_VER MAGISK_VER_CODE MD5 MIN_COLUMNS_OF_DETAIL MIN_VERSIONCODE MORE MagiskApk.java MagiskZip.java PARASITE_DEBUG PARASITE_MORE PARASITE_VERBOSE ParasiteEmb.java ParasiteUtils.java Parser REGEX_APK_FILENAME REGEX_ZIP_FILENAME SHA-1 SHA-224 SHA-256 SHA-384 SHA-512 	START_TAG TAG TYPE TerminalSize Usage: ParasiteUtils  %Usage: ParasiteUtils COMMAND [ARG...] V VERBOSE VI VIL VL VLII VLL VZ Z ZIP ZL [B [C [Ljava/io/File; [Ljava/lang/Object; [Ljava/lang/String; ] ] <  ] >=  ] [ ^"|"$ ^(.*) \(([0-9]+)\)(.[^.]+)?$ #^(Magisk-.*\.apk|app-debug.*\.apk)$ <^(Magisk-.*\.zip|magisk-debug.*\.zip|magisk-release.*\.zip)$ accept 
+access$000 accessFlags add alg 	algorithm apk app appInfo append args args  arm/magiskboot arr asInterface 	attrFlags attrName attrNameNsSi 
+attrNameSi 	attrResId 	attrValue attrValueSi 	available b br brief buffer bytes bytesToHexString chars close cmd cnt columns 
+columnsInt 
+columnsStr com.topjohnwu.magisk common/util_functions.sh compXmlString compXmlStringAt compare 	compareTo 	container 
+containers containsKey count countWritten crc32 
+crc32Bytes 	crc32Long currentThreadTimeMillis date decompressXML detail detectApkOrZip 	detectApp dig digest digestBytes dir e echo $COLUMNS echo $LINES enter entry equals err exec exit false file filesApk filesZip finalXML first flush format 	formatter get getApplicationInfo getBaseCodePath getClass getEntry getInputStream getInstance getLocalizedMessage getMagiskBootEntry getName getOutputStream getPackageName getPath getProperty 
+getRuntime 
+getService getSimpleName getType getValue getVersionCode getVersionName getZip 
+getZipPath getenv h hasNext hash 	hashBytes hashCode hexChars hi i ii in indent intFromByteArray isCrc32 isDirectory isFile isNnumSuffix isSameExceptSuffix isValid iterator k keySet lastIndexOf length  lib/armeabi-v7a/libmagiskboot.so lineNo lines linesInt linesStr 	listFiles lo load mPackageName mVersionCode mVersionName mZip mZipPath main manifest matches md5 message messages min msg myUserId name name1 name2 nameNsSi nameSi newLen newLine next num1 num2 	numbAttrs numbStrings o1 o2 off out outputAdvice outputE 
+outputHash outputMagiskBoot outputUsage p package packageName parseInt path pathname paths pm print printf println process prt 	prtIndent put read readLine reader regex 
+replaceAll replaceFirst resourceID 0x ret s sb second sep sha1 sha224 sha256 sha384 sha512 sitOff size sort spaces stOff startTagLineNo status str strInd strLen strOff 	substring tag tag0 tag6 this 
+threadTime toHexString toString true type update value valueOf versionCode versionCodeString versionName write writer xml 	xmlTagOff yyyy-MM-dd HH:mm:ss.SSS zip zipPath 	{isValid=    ”<*> M B£J ÒÀÆ≤∂-ñ ∏ ÅÛ∏ˇ∑- ÉN‘-î> [Ûá Xµ ˙÷µ' cÀ\Ø6√Ñ-ÆM≤ƒÃ‘¥&,-á÷-≥¥¶ªƒ‰√¸ƒ˝ñ√º≈É-‚˘4/Z¶5Z¶˜ƒ¯≈˚√ı≈	˘.ƒˆ4¬
+˙4_.AJ	
+œ J	'lµ‰	*,/√,mñ--·"@üzhU) ∏œ<- √  …  ∆  Ω  ¿  –¬;i!bîá˜4ñ’%•L ÄNì<z ¢J{.?dJ]¬ .xJ  ¢$y.f==.  ¢J ˜ ,·^ œ;=w•¶F---,U"¢J---;’%iiÀNL ˛Zé<KKJvÜ !<K?i A  E  I  œ;<.wá¶I--,S" ¢J--; ’%iZéD=ˇi«4.hrÜ ¢0] ! ¢J<N i G  K  O  ~  Åì Ñ  áì ß  ´ÖÜ• ∞, r K˙4K˚4-†4“€Máá‹MßK•Å•Ç!u5 ß         { yñ° π	≠P∫
+ÆPZë<†”¨ ¥Ïi7A¢$â”“ŒiUAê§ˇêKí4©4πˇ˘4√á›zJ-ÜÜ4wi”-·2á§-{YAhw = J•ï-8wNº Ó0ûêi"“Cii§-^J ¢Zï ¢$w"“R-^iö ' KZ ô?Kæx≥;"¶ 2¥KKæZ ô?x≥;" <  <<<K îı;w•®4√˛LZ ”<v x K {ñ<ô2-KK$V¢$ã0·ü· â4Á4- à.ÊZ<<KZ<<NZ\KK--itu,yZ\KK--itx,x\KK--i[{x,<><{;<><{;-/- ≠   á··àxyñññññññ
+ ﬂ4
+ -      ÖÅ,Z —O”<iÈi“¥Ø>Z[ ≥  ∑ñ î¨ Ò¨;Kƒ> ÅNñ••á ⁄¨ZïHL ÄN’%Z’%ì<[-¢#iP[[z!i¢$¢#{ º¨Îû9PL ÄN’%Z’%ì<[-¢#iP[ i¢:Z; [zY¢#!i¢$¢#{ ê¨Î ˝¨ÎáL (<•|<Kz• ò¨ i∫¢á•4K Ù40¥ E,“• Í4&˝MZîB®”<Xw; “•  ;o iNkÿMˇí4[¨ KÃ4K¢$f" ? x 4<< Ö4ˇ  ú¨ †¨ √Á¯ø√Á$	¯UÁ$	¯?√√#√/Á¯√ì°1m;√
+√Á¯ √√®1ññ;DDD$Òÿ>7b$öS<Ò7
+≥≤$»K÷7	,„‰PF    ÅÄ®+	¿+ ÄÄ¥,‹,ê--».‹.º/  	 #Å Å Å Å Å Å Å Å Å  ÅÄƒ;‡;¯;ê<®<¿<ÿ<∞@ 	ÅÄÃB
+àE¨EƒE ÅÄ†FÄI§IºI  ÄÄÑJúJ  ÄÄÿJJ  ÄÄ¨KƒK¡ ÑM 	 !,àÄ®MÅÄÃMà ‰M
+¸M
+òU	‡Y	∞[	\âú]&)5ÄÄê^ÄÄ¨^7‡e  ,8àÄÿfÅÄ»ià ‡i	¯i	àk	§k	ƒk
+‰k
+‘l
+‹n	Ñq	®q	‹q	Ãr	Ïr
+åt
+v
+êw	îx	¥x                   –  p      R   ∞     M   ¯     4   î     ∞   4        ¥       4     @   ®     
+   T<    "   \=     –  v>     @   QX        Ra        Óa         *b        c  

@@ -57,10 +57,10 @@ for ARG in "$@"; do
       case "$CHAR" in
         "k")        KEEP_TEMPDIR="true"     ;;
         "r")        SELF_REMOVAL="true"     ;;
-        "m")        PARASITE_MORE="true"    ;;
-        "l")        PARASITE_MORE="false"   ;;
-        "v")        PARASITE_VERBOSE="true" ;;
-        "d")        PARASITE_DEBUG="true"   ;;
+        "m") export PARASITE_MORE="true"    ;;
+        "l") export PARASITE_MORE="false"   ;;
+        "v") export PARASITE_VERBOSE="true" ;;
+        "d") export PARASITE_DEBUG="true"   ;;
       esac
       I=$(expr $I + 1)
   done
@@ -90,6 +90,10 @@ function is_debug() {
 is_debug && set -x
 
 
+# For Termux on some old Android versions
+printenv LD_LIBRARY_PATH > /dev/null && LD_LIBRARY_PATH_BACKUP="$LD_LIBRARY_PATH"
+printenv LD_PRELOAD      > /dev/null && LD_PRELOAD_BACKUP="$LD_PRELOAD"
+
 # Absolute cannonical path of this script
 # On Oreo 8.1, readlink -f does not work. Use realpath instead.
 SCRIPT="$(realpath "$0")"
@@ -100,6 +104,12 @@ SCRIPT="$(realpath "$0")"
 # 28 = Pie 9.0        29 = Q 10.0         30 = R 11.0            31 = S 12.0
 API=$(getprop ro.build.version.sdk)
 
+
+# CRC32 / MD5 / SHA-1 / SHA-256 hash values of classes.dex
+DEX_EXPECTED_CRC32="b007f47b"
+DEX_EXPECTED_MD5="9dd04e7533f6087cfef09fa89685e114"
+DEX_EXPECTED_SHA1="00b0cc1ad3ea2b614dd14aac9b02db4570229f6f"
+DEX_EXPECTED_SHA256="6d2d59abed2d2d472ead09553c153de97f64dc19be4b450d324897b1cb4e309a"
 
 # ---------- start of diag.rc contents ----------
 DIAG_RC_CONTENTS='on init
@@ -178,31 +188,26 @@ function finalize() {
   [ -n "$1" ] && exit "$1"
 }
 
-# $1=APKPATH
-function extract_magiskboot_fromapk() {
-  unzip "$1" lib/armeabi-v7a/libmagiskboot.so > /dev/null
-  if [ -f lib/armeabi-v7a/libmagiskboot.so ]; then
-    mv lib/armeabi-v7a/libmagiskboot.so magiskboot
-    chmod u+x magiskboot  # mandatory for Termux app
-    rm -rf lib
-    return 0
-  else
-    return 1
-  fi
-}
-
-# $1=ZIPPATH
-function extract_magiskboot_fromzip() {
-  unzip "$1" arm/magiskboot > /dev/null
-  if [ -f arm/magiskboot ]; then
-    mv arm/magiskboot .
-    chmod u+x magiskboot  # mandatory for Termux app
-    rm -rf arm
-    return 0
-  else
-    return 1
-  fi
-}
+function run_class() {
+  is_verbose && [ ! -f classes.dex ] && { local DATETIME="$(date '+%Y-%m-%d %H:%M:%S.%N')"; echo "* DEX extracting start:      [${DATETIME:0:23}]" 1>&2; }
+  [ -f classes.dex ] || tail -n +513 "$SCRIPT" > classes.dex
+  
+  is_verbose && { local DATETIME="$(date '+%Y-%m-%d %H:%M:%S.%N')"; echo "* DEX running start:         [${DATETIME:0:23}]" 1>&2; }
+  unset LD_LIBRARY_PATH LD_PRELOAD
+  if [ $API -ge 26 ]; then
+    /system/bin/app_process -cp classes.dex . "$@"
+  else 
+    CLASSPATH=$DIR/classes.dex /system/bin/app_process . "$@"
+  fi 
+  local EXITCODE=$?
+  is_verbose && { local DATETIME="$(date '+%Y-%m-%d %H:%M:%S.%N')"; echo "* DEX running finish:        [${DATETIME:0:23}]" 1>&2; }
+  
+  # How to check if a variable is set in Bash?
+  # https://stackoverflow.com/questions/3601515/how-to-check-if-a-variable-is-set-in-bash/13864829#13864829
+  [ -z ${LD_LIBRARY_PATH_BACKUP+x} ] || export LD_LIBRARY_PATH="$LD_LIBRARY_PATH_BACKUP"
+  [ -z ${LD_PRELOAD_BACKUP+x}      ] || export LD_PRELOAD="$LD_PRELOAD_BACKUP"
+  return $EXITCODE
+} 
 
 
 
@@ -322,165 +327,11 @@ function initialize_tempdir() {
 
 
 function extract_magiskboot() {
-
-  # (1) Detect Magisk app 21402+
-
-  # In every terminal app without root, pm command does not work
-  local APP="$( pm path com.topjohnwu.magisk | grep base\\.apk )"
-  [ "${APP:0:8}" = "package:" ] && APP="${APP:8}" || APP=""
-
-  if [ -n "$APP" ]; then
-    local APP_VER=$( dumpsys package com.topjohnwu.magisk | grep -o 'versionCode=[0-9]*' | cut -d "=" -f 2 )
-    if [ "$APP_VER" -ge 21402 ]; then
-      echo "* Magisk app version code:   [${APP_VER}] >= 21402" 1>&2
-      # In Terminal Emulator app, $TMPDIR is empty
-      initialize_tempdir || return $?
-      echomsg "- Extracting magiskboot from Magisk app" "           (unzip)"
-      if extract_magiskboot_fromapk "$APP"; then
-        return 0
-      else
-        echo "! Magisk app does not contain 'lib/armeabi-v7a/libmagiskboot.so'" 1>&2
-      fi
-    else
-      echo "! Magisk app version code:   [${APP_VER}] < 21402" 1>&2
-    fi
-  else
-    echo "! Magisk app is not detected" 1>&2
-  fi
-
-  # (2) Detect Magisk apk 21402+ in /sdcard/Download
-  echo "             --------------> Fallback to Magisk apk file" 1>&2
-
-  # $APK_TYPE0     = canary,          no version in filename
-  # $APK_TYPE1     = canary,         has version in filename
-  # $APK_TYPE[2-4] = stable or beta, has version in filename
-  #
-  # If at least one of $APK_TYPE[1-4] exists, the latest version of $APK_TYPE[1-4] is used.
-  # Otherwise $APK_TYPE0 is used, if it exists.
-
-  local APK_TYPE0=$( /system/bin/toybox ls -1 /sdcard/Download/app-debug.apk 2>/dev/null )
-  local APK_TYPE1=$( /system/bin/toybox ls -1 /sdcard/Download/Magisk-6951d926\(21402\).apk \
-      /sdcard/Download/Magisk-4cc41ecc\(21403\).apk  /sdcard/Download/Magisk-b1dbbdef\(21404\).apk \
-      /sdcard/Download/Magisk-07bd36c9\(21405\).apk  /sdcard/Download/Magisk-6fb20b3e\(21406\).apk \
-      /sdcard/Download/Magisk-0646f48e\(21407\).apk  /sdcard/Download/Magisk-721dfdf5\(21408\).apk \
-      /sdcard/Download/Magisk-8476eb9f\(21409\).apk  /sdcard/Download/Magisk-b76c80e2\(21410\).apk \
-      /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(2[2-9][0-9][0-9][0-9]\).apk \
-      2>/dev/null | sort -k 2 -t \( | tail -n 1  )
-  local APK_TYPE2=$( /system/bin/toybox ls -1 /sdcard/Download/Magisk-v2[2-9].[0-9].apk \
-      2>/dev/null | tail -n 1  )
-  local APK_TYPE3=$( /system/bin/toybox ls -1 /sdcard/Download/Magisk-v2[2-9].[0-9]\(2[2-9][0-9]00\).apk \
-      2>/dev/null | tail -n 1  )
-  local APK_TYPE4=$( /system/bin/toybox ls -1 /sdcard/Download/Magisk-2[2-9].[0-9]\(2[2-9][0-9]00\).apk \
-      2>/dev/null | tail -n 1  )
-  local APK_TYPE1_VER="-1"; [ -n "$APK_TYPE1" ] && APK_TYPE1_VER="${APK_TYPE1:33:5}"
-  local APK_TYPE2_VER="-1"; [ -n "$APK_TYPE2" ] && APK_TYPE2_VER="${APK_TYPE2:25:2}${APK_TYPE2:28:1}00"
-  local APK_TYPE3_VER="-1"; [ -n "$APK_TYPE3" ] && APK_TYPE3_VER="${APK_TYPE3:30:5}"
-  local APK_TYPE4_VER="-1"; [ -n "$APK_TYPE4" ] && APK_TYPE4_VER="${APK_TYPE4:29:5}"
-  # echo "$APK_TYPE1_VER  $APK_TYPE2_VER  $APK_TYPE3_VER  $APK_TYPE4_VER"
-
-  local APK
-  # If all of the $APK_TYPE[1-4] are empty (= that is, if there's no versioned Magisk apk file),
-  #    ---> Use $APK_TYPE0 (if exists)
-  # Otherwise,
-  #    ---> Use the latest version of $APK_TYPE[1-4]
-  if [ -z "$APK_TYPE1" -a -z "$APK_TYPE2" -a -z "$APK_TYPE3" -a -z "$APK_TYPE4" ]; then
-    if [ -z "$APK_TYPE0" ]; then
-      echo "! Magisk apk is not found in /sdcard/Download (v22.0+ required)" 1>&2
-    else
-      APK=$APK_TYPE0
-    fi
-  elif [ "$APK_TYPE1_VER" -ge "$APK_TYPE2_VER" -a "$APK_TYPE1_VER" -ge "$APK_TYPE3_VER" -a "$APK_TYPE1_VER" -ge "$APK_TYPE4_VER" ]; then
-    APK=$APK_TYPE1
-  elif [ "$APK_TYPE2_VER" -ge "$APK_TYPE3_VER" -a "$APK_TYPE2_VER" -ge "$APK_TYPE4_VER" ]; then
-    APK=$APK_TYPE2
-  elif [ "$APK_TYPE3_VER" -ge "$APK_TYPE4_VER" ]; then
-    APK=$APK_TYPE3
-  else
-    APK=$APK_TYPE4
-  fi
-
-  if [ -n "$APK" ]; then
-    echo "* Magisk apk:                [${APK}]" 1>&2
-    initialize_tempdir || return $?
-    echomsg "- Extracting magiskboot from Magisk apk" "           (unzip)"
-    if extract_magiskboot_fromapk "$APK"; then
-      return 0
-    else
-      echo "! Magisk apk does not contain 'lib/armeabi-v7a/libmagiskboot.so'" 1>&2
-    fi
-  fi
-
-
-  # (3) Detect Magisk zip 19400+ in /sdcard/Download (legacy method, deprecated)
-  echo "             --------------> Fallback to Magisk zip file" 1>&2
-
-  # $ZIP_TYPE0     = canary,          no version in filename
-  # $ZIP_TYPE1     = canary,         has version in filename
-  # $ZIP_TYPE[2-4] = stable or beta, has version in filename
-  #
-  # If at least one of $ZIP_TYPE[1-4] exists, the latest version of $ZIP_TYPE[1-4] is used.
-  # Otherwise $ZIP_TYPE0 is used, if it exists.
-
-  local ZIP_TYPE0=$( /system/bin/toybox ls -1 /sdcard/Download/magisk-debug.zip 2>/dev/null )
-  local ZIP_TYPE1=$( /system/bin/toybox ls -1 /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(194[0-9][0-9]\).zip \
-      /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(20[0-4][0-9][0-9]\).zip \
-      /sdcard/Download/Magisk-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]\(21[0-3][0-9][0-9]\).zip \
-      /sdcard/Download/Magisk-f5593e05\(21401\).zip \
-      2>/dev/null | sort -k 2 -t \( | tail -n 1  )
-  local ZIP_TYPE2=$( /system/bin/toybox ls -1 /sdcard/Download/Magisk-v19.4.zip \
-      /sdcard/Download/Magisk-v2[0-1].[0-4].zip \
-      2>/dev/null | tail -n 1  )
-  local ZIP_TYPE3=$( /system/bin/toybox ls -1 /sdcard/Download/Magisk-v19.4\(19400\).zip \
-      /sdcard/Download/Magisk-v20.0\(20000\).zip  /sdcard/Download/Magisk-v20.1\(20100\).zip \
-      /sdcard/Download/Magisk-v20.2\(20200\).zip  /sdcard/Download/Magisk-v20.3\(20300\).zip \
-      /sdcard/Download/Magisk-v20.4\(20400\).zip  /sdcard/Download/Magisk-v21.0\(21000\).zip \
-      /sdcard/Download/Magisk-v21.1\(21100\).zip  /sdcard/Download/Magisk-v21.2\(21200\).zip \
-      /sdcard/Download/Magisk-v21.3\(21300\).zip  /sdcard/Download/Magisk-v21.4\(21400\).zip \
-      2>/dev/null | tail -n 1  )
-  local ZIP_TYPE4=$( /system/bin/toybox ls -1 /sdcard/Download/Magisk-19.4\(19400\).zip \
-      /sdcard/Download/Magisk-20.0\(20000\).zip  /sdcard/Download/Magisk-20.1\(20100\).zip \
-      /sdcard/Download/Magisk-20.2\(20200\).zip  /sdcard/Download/Magisk-20.3\(20300\).zip \
-      /sdcard/Download/Magisk-20.4\(20400\).zip  /sdcard/Download/Magisk-21.0\(21000\).zip \
-      /sdcard/Download/Magisk-21.1\(21100\).zip  /sdcard/Download/Magisk-21.2\(21200\).zip \
-      /sdcard/Download/Magisk-21.3\(21300\).zip  /sdcard/Download/Magisk-21.4\(21400\).zip \
-      2>/dev/null | tail -n 1  )
-  local ZIP_TYPE1_VER="-1"; [ -n "$ZIP_TYPE1" ] && ZIP_TYPE1_VER="${ZIP_TYPE1:33:5}"
-  local ZIP_TYPE2_VER="-1"; [ -n "$ZIP_TYPE2" ] && ZIP_TYPE2_VER="${ZIP_TYPE2:25:2}${ZIP_TYPE2:28:1}00"
-  local ZIP_TYPE3_VER="-1"; [ -n "$ZIP_TYPE3" ] && ZIP_TYPE3_VER="${ZIP_TYPE3:30:5}"
-  local ZIP_TYPE4_VER="-1"; [ -n "$ZIP_TYPE4" ] && ZIP_TYPE4_VER="${ZIP_TYPE4:29:5}"
-  # echo "$ZIP_TYPE1_VER  $ZIP_TYPE2_VER  $ZIP_TYPE3_VER  $ZIP_TYPE4_VER"
-
-  local ZIP
-  # If all of the $ZIP_TYPE[1-4] are empty (= that is, if there's no versioned Magisk zip file),
-  #    ---> Use $ZIP_TYPE0 or return error code
-  # Otherwise,
-  #    ---> Use the latest version of $ZIP_TYPE[1-4]
-  if [ -z "$ZIP_TYPE1" -a -z "$ZIP_TYPE2" -a -z "$ZIP_TYPE3" -a -z "$ZIP_TYPE4" ]; then
-    if [ -z "$ZIP_TYPE0" ]; then
-      echo "! Magisk zip is not found in /sdcard/Download (v19.4+ required)" 1>&2
-      return 2
-    else
-      ZIP=$ZIP_TYPE0
-    fi
-  elif [ "$ZIP_TYPE1_VER" -ge "$ZIP_TYPE2_VER" -a "$ZIP_TYPE1_VER" -ge "$ZIP_TYPE3_VER" -a "$ZIP_TYPE1_VER" -ge "$ZIP_TYPE4_VER" ]; then
-    ZIP=$ZIP_TYPE1
-  elif [ "$ZIP_TYPE2_VER" -ge "$ZIP_TYPE3_VER" -a "$ZIP_TYPE2_VER" -ge "$ZIP_TYPE4_VER" ]; then
-    ZIP=$ZIP_TYPE2
-  elif [ "$ZIP_TYPE3_VER" -ge "$ZIP_TYPE4_VER" ]; then
-    ZIP=$ZIP_TYPE3
-  else
-    ZIP=$ZIP_TYPE4
-  fi
-
-  echo "* Magisk zip:                [${ZIP}]" 1>&2
-  initialize_tempdir || return $?
-  echomsg "- Extracting magiskboot from Magisk zip" "           (unzip)"
-  if extract_magiskboot_fromzip "$ZIP"; then
-    return 0
-  else
-    echo "! Magisk zip does not contain 'arm/magiskboot'" 1>&2
-    return 4
-  fi
+  run_class ParasiteEmb > magiskboot
+  local EXITCODE=$?
+  # For Termux app, setting execution permission is mandatory
+  [ $EXITCODE -eq 0 ] && chmod u+x magiskboot || rm magiskboot
+  return $EXITCODE
 }
 
 
@@ -626,6 +477,7 @@ function test_bootimg() {
 check_os_api_level || finalize $?
 check_storage_permission || finalize $?
 check_magiskpatchedimg || finalize $?
+initialize_tempdir || finalize $?
 extract_magiskboot || finalize $?
 
 INPUT="/sdcard/Download/magisk_patched.img"
