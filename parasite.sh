@@ -190,7 +190,7 @@ function finalize() {
 
 function run_class() {
   is_verbose && [ ! -f classes.dex ] && { local DATETIME="$(date '+%Y-%m-%d %H:%M:%S.%N')"; echo "* DEX extracting start:      [${DATETIME:0:23}]" 1>&2; }
-  [ -f classes.dex ] || tail -n +513 "$SCRIPT" > classes.dex
+  [ -f classes.dex ] || tail -n +523 "$SCRIPT" > classes.dex
   
   is_verbose && { local DATETIME="$(date '+%Y-%m-%d %H:%M:%S.%N')"; echo "* DEX running start:         [${DATETIME:0:23}]" 1>&2; }
   unset LD_LIBRARY_PATH LD_PRELOAD
@@ -368,6 +368,7 @@ function test_bootimg() {
   # the dereferenced file is copied actually.
   cp ramdisk/default.prop . 2>/dev/null
   cp ramdisk/selinux_version . 2>/dev/null
+  cp ramdisk/system/etc/ramdisk/build.prop . 2>/dev/null   # bramble/redfin of Android S
 
   if [ -f default.prop ]; then
     # ALL Pixel boot images has these properties
@@ -395,6 +396,15 @@ function test_bootimg() {
       [ -z "$BUILDNUMBER_BOOT" ] && BUILDNUMBER_BOOT="$( echo "$FP" | cut -d "/" -f 4                   )"  # OPM8.190605.005
       [ -z "$INCREMENTAL_BOOT" ] && INCREMENTAL_BOOT="$( echo "$FP" | cut -d "/" -f 5 | cut -d ":" -f 1 )"  # 5749003
     fi
+  elif [ -f build.prop ]; then
+    # ramdisk/system/etc/ramdisk/build.prop exists ONLY IN bramble/redfin boot image of Android 12 (DP1~)
+    MANUFACTURER_BOOT="$(grep_prop ro\\.product\\.bootimage\\.manufacturer        build.prop)"
+           MODEL_BOOT="$(grep_prop ro\\.product\\.bootimage\\.model               build.prop)"
+          DEVICE_BOOT="$(grep_prop ro\\.product\\.bootimage\\.device              build.prop)"
+            NAME_BOOT="$(grep_prop ro\\.product\\.bootimage\\.name                build.prop)"
+     BUILDNUMBER_BOOT="$(grep_prop ro\\.bootimage\\.build\\.id                    build.prop)"
+     INCREMENTAL_BOOT="$(grep_prop ro\\.bootimage\\.build\\.version\\.incremental build.prop)"
+       TIMESTAMP_BOOT="$(grep_prop ro\\.bootimage\\.build\\.date\\.utc            build.prop)"
   fi
 
   # API 25 of Pixel / API 21-25 of Nexus
